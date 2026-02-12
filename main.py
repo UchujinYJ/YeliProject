@@ -260,7 +260,7 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 <div class="content">
 <div id="p-office" class="page active" style="display:block"><div class="room-view"><div class="mlog" id="mlog">初始化連線...</div></div></div>
 <div id="p-skills" class="page"><div class="rpg" id="rpg"><div class="loading">載入中</div></div></div>
-<div id="p-memory" class="page"><div class="mp"><div class="mcw" id="mcw"><div class="mhint" id="mhint">拖曳旋轉 · 滾輪縮放 · 點擊節點查看詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">✕</span></div><div class="msbb" id="msbb"></div></div></div></div>
+<div id="p-memory" class="page"><div class="mp"><div class="mcw" id="mcw"><div id="labels-wrap" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:5"></div><div class="mhint" id="mhint">拖曳旋轉 · 滾輪縮放 · 點擊節點查看詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">✕</span></div><div class="msbb" id="msbb"></div></div></div></div>
 </div>
 <script>
 let CFG={},LL=[],SD=null;
@@ -317,13 +317,14 @@ if(t==='script')return{'crypto_check.py':'加密貨幣價格監控','bounty_hunt
 // ========== 3D MEMORY GRAPH ==========
 let scene,camera,renderer,nodeGroup,edgeGroup,raycaster,mouse,nodeDataMap={},controls;
 let isRotating=false,prevMouse={x:0,y:0},autoRotate=true;
+let labelEls=[];
 
 async function lmp(){
 if(!SD){const r=await fetch('/get_status',{method:'POST'});SD=await r.json()}
 if(SD.error)return;
 const wrap=document.getElementById('mcw');
 // 避免重複初始化
-if(renderer){scene.clear();init3D(SD);return}
+if(renderer){nodeGroup.clear();edgeGroup.clear();labelEls.forEach(l=>l.lbl.remove());labelEls=[];buildNodes3D(SD);return}
 init3D(SD);
 document.getElementById('mleg').innerHTML=[{c:'#fbbf24',l:'中心'},{c:'#ef4444',l:'核心'},{c:'#60a5fa',l:'記憶'},{c:'#22c55e',l:'腳本'}].map(x=>'<div class="mli"><div class="mld" style="background:'+x.c+'"></div>'+x.l+'</div>').join('')}
 
@@ -361,7 +362,7 @@ const geo=new THREE.SphereGeometry(radius,24,24);
 const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(color),emissive:new THREE.Color(color),emissiveIntensity:0.3,transparent:true,opacity:0.85});
 const mesh=new THREE.Mesh(geo,mat);
 mesh.position.copy(pos);
-mesh.userData={id,label,content,color};
+mesh.userData={id,label,content,color,radius};
 nodeDataMap[id]={mesh,label,content,color};
 nodeGroup.add(mesh);
 
@@ -371,6 +372,13 @@ const glowMat=new THREE.MeshBasicMaterial({color:new THREE.Color(color),transpar
 const glow=new THREE.Mesh(glowGeo,glowMat);
 glow.position.copy(pos);
 nodeGroup.add(glow);
+
+// HTML label
+const lbl=document.createElement('div');
+lbl.style.cssText='position:absolute;color:#c8d6e5;font-size:10px;font-family:"Noto Sans TC",sans-serif;white-space:nowrap;text-shadow:0 0 4px #000,0 0 8px #000;transform:translate(-50%,0);pointer-events:none';
+lbl.innerText=label;
+document.getElementById('labels-wrap').appendChild(lbl);
+labelEls.push({mesh,lbl,offset:radius+6});
 
 return mesh;
 }
@@ -441,12 +449,11 @@ if(hit){
 const d=hit.object.userData;
 document.getElementById('msbt').innerText=d.label;
 const body=document.getElementById('msbb');
-body.innerHTML='<div class="det-raw">'+E(d.content||'（無內容）')+'</div>';
+const hasContent=d.content&&d.content.trim();
+body.innerHTML=(hasContent?'<div class="det-raw">'+E(d.content)+'</div>':'<div style="color:#484f58">（無內容）</div>')+(hasContent&&CFG.has_gemini?'<div class="tr-btn" onclick="trSb(this)" style="display:inline-block;margin-top:10px;padding:4px 12px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.3);border-radius:4px;font-size:11px;cursor:pointer">🌐 翻譯成中文</div>':'');
 document.getElementById('msb').classList.add('open');
 document.getElementById('mhint').style.display='none';
 nodeGroup.children.forEach(c=>{if(c.material&&c.material.emissiveIntensity!==undefined)c.material.emissiveIntensity=c===hit.object?0.8:0.3});
-// 自動翻譯
-if(CFG.has_gemini&&d.content){autoTranslateSb(d.content)}
 }});
 
 // Touch
@@ -460,21 +467,37 @@ if(touchStart&&Date.now()-touchStart<200&&e.changedTouches.length===1){const t=e
 }
 
 let trCache={};
-async function autoTranslateSb(rawText){
-const body=document.getElementById('msbb');
-const key=rawText.substring(0,200);
-if(trCache[key]){body.innerHTML=E(trCache[key]);return}
-body.innerHTML='<div style="color:#484f58">⏳ 翻譯中...</div><div class="det-raw" style="margin-top:8px;opacity:.4;font-size:10px">'+E(rawText)+'</div>';
-try{const r=await fetch('/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:rawText})});
+async function trSb(btn){
+if(btn.classList.contains('done'))return;
+btn.innerText='⏳ 翻譯中...';btn.style.opacity='0.5';btn.classList.add('done');
+const raw=document.querySelector('#msbb .det-raw');
+if(!raw)return;
+const text=raw.innerText;
+const key=text.substring(0,200);
+if(trCache[key]){raw.innerText=trCache[key];btn.innerText='✅ 已翻譯';return}
+try{const r=await fetch('/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});
 const d=await r.json();
-if(d.translated){trCache[key]=d.translated;body.innerHTML=E(d.translated)}
-else{body.innerHTML='<div class="det-raw">'+E(rawText)+'</div><div style="color:#484f58;margin-top:6px;font-size:10px">（翻譯額度冷卻中，顯示原文）</div>'}
-}catch(e){body.innerHTML='<div class="det-raw">'+E(rawText)+'</div><div style="color:var(--red);margin-top:6px;font-size:10px">翻譯失敗</div>'}}
+if(d.translated){trCache[key]=d.translated;raw.innerText=d.translated;btn.innerText='✅ 已翻譯'}
+else{btn.innerText='⏳ 冷卻中，稍後再試';btn.style.opacity='1';btn.classList.remove('done')}
+}catch(e){btn.innerText='❌ 失敗';btn.style.opacity='1';btn.classList.remove('done')}}
 
 function animate3D(){
 requestAnimationFrame(animate3D);
 if(autoRotate){nodeGroup.rotation.y+=0.002;edgeGroup.rotation.y+=0.002}
 renderer.render(scene,camera);
+// 更新 HTML 標籤位置
+const W=renderer.domElement.clientWidth,H=renderer.domElement.clientHeight;
+labelEls.forEach(({mesh,lbl,offset})=>{
+const wp=new THREE.Vector3();
+mesh.getWorldPosition(wp);
+const v=wp.clone().project(camera);
+const x=(v.x*0.5+0.5)*W;
+const y=(-v.y*0.5+0.5)*H;
+if(v.z>1){lbl.style.display='none';return}
+lbl.style.display='';
+lbl.style.left=x+'px';lbl.style.top=(y+offset*0.8)+'px';
+lbl.style.opacity=v.z<0.99?'1':'0.3';
+});
 }
 
 function csb(){document.getElementById('msb').classList.remove('open');
