@@ -122,7 +122,7 @@ def fetch_lobster_status():
               "memory_index": "", "identity": "", "mem_summaries": [], "soul": ""}
     ls_output = zeabur_exec(["ls", "-1", ws])
     if not ls_output:
-        return {"error": "無法連線到小龍蝦"}
+        return {"error": "無法連線到夜璃"}
     for f in ls_output.strip().split("\n"):
         f = f.strip()
         if not f: continue
@@ -276,19 +276,19 @@ function ss(ok,t){document.getElementById('sdot').className='sdot '+(ok?'ok':'er
 
 async function init(){const r=await fetch('/get_sys_config');CFG=await r.json();if(CFG.has_zeabur){ss(true,'已連線');sync();setInterval(sync,30000)}else{ss(false,'未設定');document.getElementById('mlog').innerText="❌ 缺少環境變數"}}
 
-async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText="❌ "+d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="🦞 安靜中..."}}catch(e){ss(false,'連線失敗')}}
+async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText="❌ "+d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="🌙 安靜中..."}}catch(e){ss(false,'連線失敗')}}
 
 function rl(d){const el=document.getElementById('mlog');const rc=d.logs.slice(-10);const tr=d.translated||'';
 el.innerHTML=rc.map((l,i)=>{const t=l.timestamp?new Date(l.timestamp).toLocaleTimeString('zh-TW',{hour12:false}):'--:--:--';const la=i===rc.length-1;
-return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">🦞 '+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight}
+return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">🌙 '+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight}
 
 // ========== SKILLS ==========
 async function lsp(){
 const pg=document.getElementById('rpg');
-if(!SD){pg.innerHTML='<div class="loading">讀取小龍蝦資料中</div>';const r=await fetch('/get_status',{method:'POST'});SD=await r.json()}
+if(!SD){pg.innerHTML='<div class="loading">讀取夜璃資料中</div>';const r=await fetch('/get_status',{method:'POST'});SD=await r.json()}
 if(SD.error){pg.innerHTML='<div style="color:var(--red);padding:20px">❌ '+E(SD.error)+'</div>';return}
 const s=SD,cc=(s.core_files||[]).length,mc=(s.memory_files||[]).length,sc=(s.scripts||[]).length,kc=(s.skills||[]).length,tt=cc+mc+sc+kc;
-let h='<div class="rpg-h"><div class="rpg-t">⚔️ 小龍蝦 — 能力面板</div><div class="rpg-sub">'+E(s.identity||'AI Agent on OpenClaw')+'</div><div class="rpg-st">'+sb(tt,'TOTAL')+sb(cc,'核心')+sb(mc,'記憶')+sb(sc,'腳本')+sb(kc,'技能')+'</div></div><div class="rpg-tree">';
+let h='<div class="rpg-h"><div class="rpg-t">⚔️ 夜璃 — 能力面板</div><div class="rpg-sub">'+E(s.identity||'AI Agent on OpenClaw')+'</div><div class="rpg-st">'+sb(tt,'TOTAL')+sb(cc,'核心')+sb(mc,'記憶')+sb(sc,'腳本')+sb(kc,'技能')+'</div></div><div class="rpg-tree">';
 h+=sC('💛','var(--accent)','核心系統',s.core_files||[],'core',s);
 h+=sC('🧠','var(--blue)','記憶模組',s.memory_files||[],'memory',s);
 h+=sC('🐍','var(--green)','Python 腳本',s.scripts||[],'script',s);
@@ -385,7 +385,7 @@ return mesh;
 
 function buildNodes3D(s){
 // Center
-makeNode3D('core','🦞 小龍蝦',new THREE.Vector3(0,0,0),20,'#fbbf24',s.identity||'AI Agent');
+makeNode3D('core','🌙 夜璃',new THREE.Vector3(0,0,0),20,'#fbbf24',s.identity||'AI Agent');
 
 // Core ring (horizontal circle)
 const cf=s.core_files||[];
@@ -430,18 +430,35 @@ edgeGroup.add(new THREE.Line(geo,mat));
 
 function setupInteraction3D(wrap){
 const cv=renderer.domElement;
-cv.addEventListener('mousedown',e=>{isRotating=true;prevMouse={x:e.clientX,y:e.clientY};autoRotate=false});
+let dragDist=0,mouseDownPos={x:0,y:0};
+
+cv.addEventListener('mousedown',e=>{isRotating=true;autoRotate=false;dragDist=0;mouseDownPos={x:e.clientX,y:e.clientY};prevMouse={x:e.clientX,y:e.clientY}});
 cv.addEventListener('mousemove',e=>{if(!isRotating)return;const dx=e.clientX-prevMouse.x,dy=e.clientY-prevMouse.y;
+dragDist+=Math.abs(dx)+Math.abs(dy);
 nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
 prevMouse={x:e.clientX,y:e.clientY}});
-cv.addEventListener('mouseup',()=>isRotating=false);
+cv.addEventListener('mouseup',e=>{
+isRotating=false;
+if(dragDist<5){handleNodeClick(e.clientX,e.clientY,cv)}
+});
 cv.addEventListener('mouseleave',()=>isRotating=false);
 cv.addEventListener('wheel',e=>{e.preventDefault();camera.position.z+=e.deltaY*0.5;camera.position.z=Math.max(100,Math.min(800,camera.position.z))},{passive:false});
 
-cv.addEventListener('click',e=>{
+// Touch
+let touchStart=null,touchDragDist=0;
+cv.addEventListener('touchstart',e=>{if(e.touches.length===1){isRotating=true;autoRotate=false;touchDragDist=0;touchStart=Date.now();prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}});
+cv.addEventListener('touchmove',e=>{e.preventDefault();if(isRotating&&e.touches.length===1){const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
+touchDragDist+=Math.abs(dx)+Math.abs(dy);
+nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
+prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}},{passive:false});
+cv.addEventListener('touchend',e=>{isRotating=false;
+if(touchDragDist<10&&e.changedTouches.length===1){const t=e.changedTouches[0];handleNodeClick(t.clientX,t.clientY,cv)}});
+}
+
+function handleNodeClick(cx,cy,cv){
 const rect=cv.getBoundingClientRect();
-mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
-mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+mouse.x=((cx-rect.left)/rect.width)*2-1;
+mouse.y=-((cy-rect.top)/rect.height)*2+1;
 raycaster.setFromCamera(mouse,camera);
 const hits=raycaster.intersectObjects(nodeGroup.children);
 const hit=hits.find(h=>h.object.userData&&h.object.userData.id);
@@ -450,21 +467,11 @@ const d=hit.object.userData;
 document.getElementById('msbt').innerText=d.label;
 const body=document.getElementById('msbb');
 const hasContent=d.content&&d.content.trim();
-body.innerHTML=(hasContent?'<div class="det-raw">'+E(d.content)+'</div>':'<div style="color:#484f58">（無內容）</div>')+(hasContent&&CFG.has_gemini?'<div class="tr-btn" onclick="trSb(this)" style="display:inline-block;margin-top:10px;padding:4px 12px;background:rgba(251,191,36,.1);color:#fbbf24;border:1px solid rgba(251,191,36,.3);border-radius:4px;font-size:11px;cursor:pointer">🌐 翻譯成中文</div>':'');
+body.innerHTML=(hasContent?'<div class="det-raw" style="margin-bottom:12px">'+E(d.content)+'</div>':'<div style="color:#484f58">（無內容）</div>')+(hasContent&&CFG.has_gemini?'<div onclick="trSb(this)" style="display:inline-block;padding:5px 14px;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.3);border-radius:5px;font-size:11px;cursor:pointer;margin-top:4px">🌐 翻譯成中文</div>':'');
 document.getElementById('msb').classList.add('open');
 document.getElementById('mhint').style.display='none';
 nodeGroup.children.forEach(c=>{if(c.material&&c.material.emissiveIntensity!==undefined)c.material.emissiveIntensity=c===hit.object?0.8:0.3});
-}});
-
-// Touch
-let touchStart=null;
-cv.addEventListener('touchstart',e=>{if(e.touches.length===1){isRotating=true;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};autoRotate=false;touchStart=Date.now()}});
-cv.addEventListener('touchmove',e=>{e.preventDefault();if(isRotating&&e.touches.length===1){const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
-nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
-prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}},{passive:false});
-cv.addEventListener('touchend',e=>{isRotating=false;
-if(touchStart&&Date.now()-touchStart<200&&e.changedTouches.length===1){const t=e.changedTouches[0];const fk={clientX:t.clientX,clientY:t.clientY};cv.dispatchEvent(new MouseEvent('click',fk))}});
-}
+}}
 
 let trCache={};
 async function trSb(btn){
