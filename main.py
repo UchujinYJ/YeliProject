@@ -1,5 +1,6 @@
 import os
 import json
+import time
 import requests
 from fastapi import FastAPI
 from fastapi.responses import HTMLResponse, JSONResponse
@@ -8,11 +9,18 @@ from fastapi.staticfiles import StaticFiles
 app = FastAPI()
 app.mount("/static", StaticFiles(directory="."), name="static")
 
+# ============================
+# Gemini 翻譯快取（防止瘋狂打 API）
+# ============================
+translate_cache = {}       # {log_hash: translated_text}
+last_translate_time = 0    # 上次翻譯的時間戳
+TRANSLATE_COOLDOWN = 60    # 至少間隔 60 秒才翻譯一次
+
 def get_sys_config():
     return {
-        "gk": os.getenv("GEMINI_KEY", ""),
-        "sp": os.getenv("SYSTEM_PROMPT", "你是一個傲嬌的監控秘書。"),
-        "has_zeabur": bool(os.getenv("ZEABUR_API_TOKEN", ""))
+        "has_zeabur": bool(os.getenv("ZEABUR_API_TOKEN", "")),
+        "has_gemini": bool(os.getenv("GEMINI_KEY", ""))
+        # 不再傳 Key 到前端！
     }
 
 # ============================
@@ -68,6 +76,78 @@ def fetch_runtime_logs():
         return {"logs": [{"content": l["message"], "timestamp": l["timestamp"]} for l in logs]}
     except Exception as e:
         return {"logs": [], "error": f"連線錯誤: {str(e)}"}
+
+def translate_with_gemini(text):
+    """後端翻譯，帶快取和頻率限制"""
+    global last_translate_time, translate_cache
+    
+    gk = os.getenv("GEMINI_KEY", "")
+    if not gk:
+        return ""
+    
+    # 快取檢查
+    text_hash = hash(text[:200])
+    if text_hash in translate_cache:
+        return translate_cache[text_hash]
+    
+    # 頻率限制：至少間隔 TRANSLATE_COOLDOWN 秒
+    now = time.time()
+    if now - last_translate_time < TRANSLATE_COOLDOWN:
+        return ""
+    
+    sp = os.getenv("SYSTEM_PROMPT", "你是一個傲嬌的監控秘書。")
+    
+    try:
+        res = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gk}",
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": f"{sp}\n\n用一句繁體中文白話翻譯這段 Log（不要超過 50 字）：\n{text[:300]}"}]}]},
+            timeout=10
+        )
+        data = res.json()
+        
+        if "error" in data:
+            return ""
+        
+        result = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        
+        # 存入快取
+        translate_cache[text_hash] = result
+        last_translate_time = now
+        
+        # 快取最多存 50 筆
+        if len(translate_cache) > 50:
+            keys = list(translate_cache.keys())
+            for k in keys[:25]:
+                del translate_cache[k]
+        
+        return result
+    except:
+        return ""
+
+def analyze_tasks_with_gemini(logs_text):
+    """後端分析任務"""
+    gk = os.getenv("GEMINI_KEY", "")
+    if not gk:
+        return []
+    
+    try:
+        prompt = '分析以下 AI Agent 日誌，提取最多 3 個任務。只回 JSON：[{"name":"名","desc":"述","status":"running/done/error"}]\n\n' + logs_text
+        res = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gk}",
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=15
+        )
+        data = res.json()
+        if "error" in data:
+            return []
+        
+        ai_text = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "[]")
+        json_str = ai_text[ai_text.index("["):ai_text.rindex("]") + 1]
+        return json.loads(json_str)
+    except:
+        return []
 
 def fetch_lobster_status():
     """讀取小龍蝦的真實狀態"""
@@ -184,7 +264,6 @@ HTML_CODE = """
     <script>
         let CFG = {};
         let lastLogs = [];
-        let statusCache = null;
 
         function switchPage(p, el) {
             document.querySelectorAll('.page').forEach(x => x.classList.remove('active'));
@@ -203,7 +282,7 @@ HTML_CODE = """
         async function init() {
             const res = await fetch('/get_sys_config');
             CFG = await res.json();
-            if (CFG.has_zeabur) { setStatus(true, '已連線'); sync(); setInterval(sync, 15000); }
+            if (CFG.has_zeabur) { setStatus(true, '已連線'); sync(); setInterval(sync, 30000); }
             else { setStatus(false, '未設定'); document.getElementById('mini-log').innerText = "❌ 缺少環境變數"; }
         }
 
@@ -214,7 +293,7 @@ HTML_CODE = """
                 if (data.logs && data.logs.length > 0) {
                     lastLogs = data.logs;
                     setStatus(true, '已連線 (' + data.logs.length + ' 筆)');
-                    renderLogs(data.logs);
+                    renderLogs(data);
                 } else if (data.error) {
                     setStatus(false, data.error);
                     document.getElementById('mini-log').innerText = "❌ " + data.error;
@@ -225,11 +304,10 @@ HTML_CODE = """
             } catch(e) { setStatus(false, '連線失敗'); }
         }
 
-        async function renderLogs(logs) {
+        function renderLogs(data) {
             const el = document.getElementById('mini-log');
-            const recent = logs.slice(-10);
-            let translated = '';
-            if (CFG.gk && recent.length > 0) translated = await translateLog(recent[recent.length-1].content);
+            const recent = data.logs.slice(-10);
+            const translated = data.translated || '';
             el.innerHTML = recent.map((log, i) => {
                 const t = log.timestamp ? new Date(log.timestamp).toLocaleTimeString('zh-TW',{hour12:false}) : '--:--:--';
                 const last = i === recent.length - 1;
@@ -238,41 +316,26 @@ HTML_CODE = """
             el.scrollTop = el.scrollHeight;
         }
 
-        async function translateLog(text) {
-            if (!CFG.gk) return '';
-            try {
-                const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+CFG.gk,
-                    {method:'POST',headers:{'Content-Type':'application/json'},
-                     body:JSON.stringify({contents:[{parts:[{text:CFG.sp+"\\n\\n用一句繁體中文白話翻譯這段 Log（不超過 50 字）：\\n"+text.substring(0,300)}]}]})});
-                const d = await r.json();
-                return d.candidates?.[0]?.content?.parts?.[0]?.text || '';
-            } catch(e) { return ''; }
-        }
-
         async function loadSkillsPage() {
             const page = document.getElementById('skills-page');
-            if (!statusCache) page.innerHTML = '<div class="loading">載入小龍蝦狀態中</div>';
+            page.innerHTML = '<div class="loading">載入小龍蝦狀態中</div>';
 
             const res = await fetch('/get_status', { method: 'POST' });
             const st = await res.json();
-            statusCache = st;
 
             if (st.error) { page.innerHTML = '<div style="color:var(--red)">❌ '+esc(st.error)+'</div>'; return; }
 
             let h = '';
 
-            // 身份
             if (st.identity) {
                 h += '<div class="section-title">🦞 身份</div>';
                 h += '<div class="card"><div class="card-preview">'+esc(st.identity)+'</div></div>';
             }
 
-            // 核心檔案
             h += '<div class="section-title">📁 核心檔案</div><div class="file-grid">';
             (st.core_files||[]).forEach(f => h += '<span class="file-chip">'+esc(f)+'</span>');
             h += '</div>';
 
-            // 記憶系統
             h += '<div class="section-title">🧠 記憶系統</div>';
             if (st.memory_index) {
                 h += '<div class="card"><div class="card-header"><span class="card-name">MEMORY.md（索引）</span><span class="card-badge badge-core">INDEX</span></div>';
@@ -283,14 +346,12 @@ HTML_CODE = """
                 h += '<div class="card-preview">'+esc(m.preview)+'</div></div>';
             });
 
-            // Python 腳本
             if (st.scripts && st.scripts.length > 0) {
                 h += '<div class="section-title">🐍 Python 腳本</div><div class="file-grid">';
                 st.scripts.forEach(s => h += '<span class="file-chip">'+esc(s)+'</span>');
                 h += '</div>';
             }
 
-            // Skills
             h += '<div class="section-title">⚡ 已安裝技能</div>';
             if (st.skills && st.skills.length > 0) {
                 h += '<div class="file-grid">';
@@ -300,32 +361,26 @@ HTML_CODE = """
                 h += '<div class="card" style="color:#64748b;">目前沒有安裝任何 skill</div>';
             }
 
-            // AI 即時任務分析
+            // AI 任務分析
             h += '<div class="section-title">🤖 即時任務分析</div><div id="ai-tasks"><div class="loading">分析中</div></div>';
-
             page.innerHTML = h;
 
-            if (CFG.gk && lastLogs.length > 0) analyzeTasks();
-            else if (document.getElementById('ai-tasks')) document.getElementById('ai-tasks').innerHTML = '<div class="card" style="color:#64748b;">需要 Gemini Key 和日誌</div>';
-        }
-
-        async function analyzeTasks() {
-            const el = document.getElementById('ai-tasks');
-            if (!el) return;
-            try {
-                const logsText = lastLogs.slice(-30).map(l=>l.content).join("\\n").substring(0,1500);
-                const prompt = '分析以下 AI Agent 日誌，提取最多 3 個任務。只回 JSON：[{"name":"名","desc":"述","status":"running/done/error"}]\\n\\n'+logsText;
-                const r = await fetch('https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key='+CFG.gk,
-                    {method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({contents:[{parts:[{text:prompt}]}]})});
-                const d = await r.json();
-                const t = d.candidates?.[0]?.content?.parts?.[0]?.text||'[]';
-                const tasks = JSON.parse(t.substring(t.indexOf('['), t.lastIndexOf(']')+1));
-                if (!tasks.length) { el.innerHTML = '<div class="card" style="color:#64748b;">目前沒有偵測到任務</div>'; return; }
+            if (CFG.has_gemini && lastLogs.length > 0) {
+                const taskRes = await fetch('/analyze_tasks', { method: 'POST',
+                    headers: {'Content-Type':'application/json'},
+                    body: JSON.stringify({logs: lastLogs.slice(-30).map(l=>l.content).join("\\n").substring(0,1500)})
+                });
+                const tasks = await taskRes.json();
+                const el = document.getElementById('ai-tasks');
+                if (tasks.length === 0) { el.innerHTML = '<div class="card" style="color:#64748b;">目前沒有偵測到任務</div>'; return; }
                 el.innerHTML = tasks.map(t => {
                     const icon = t.status==='running'?'🟢':t.status==='error'?'🔴':'✅';
                     return '<div class="card"><div class="card-header"><span class="card-name">'+icon+' '+esc(t.name)+'</span><span class="card-badge badge-task">'+esc(t.status||'?')+'</span></div><div class="card-preview">'+esc(t.desc)+'</div></div>';
                 }).join('');
-            } catch(e) { el.innerHTML = '<div style="color:var(--red)">分析失敗: '+esc(e.message)+'</div>'; }
+            } else {
+                const el = document.getElementById('ai-tasks');
+                if (el) el.innerHTML = '<div class="card" style="color:#64748b;">需要 Gemini Key 和日誌</div>';
+            }
         }
 
         function esc(t) { const d=document.createElement('div'); d.textContent=t; return d.innerHTML; }
@@ -346,10 +401,27 @@ def home(): return HTML_CODE
 def api_get_config(): return JSONResponse(content=get_sys_config())
 
 @app.post("/get_logs")
-def get_logs(): return JSONResponse(content=fetch_runtime_logs())
+def get_logs():
+    """拿 Log + 後端翻譯最新一筆（帶快取和頻率限制）"""
+    result = fetch_runtime_logs()
+    if result.get("logs"):
+        last_msg = result["logs"][-1]["content"]
+        translated = translate_with_gemini(last_msg)
+        result["translated"] = translated
+    return JSONResponse(content=result)
 
 @app.post("/get_status")
-def get_status(): return JSONResponse(content=fetch_lobster_status())
+def get_status():
+    return JSONResponse(content=fetch_lobster_status())
+
+@app.post("/analyze_tasks")
+async def analyze_tasks_endpoint(request: dict):
+    """後端呼叫 Gemini 分析任務"""
+    logs_text = request.get("logs", "")
+    if not logs_text:
+        return JSONResponse(content=[])
+    tasks = analyze_tasks_with_gemini(logs_text)
+    return JSONResponse(content=tasks)
 
 @app.get("/health")
 def health(): return {"status": "ok"}
