@@ -274,87 +274,89 @@ if(p==='skills')lsp();if(p==='memory')lmp();
 }
 function ss(ok,t){document.getElementById('sdot').className='sdot '+(ok?'ok':'err');document.getElementById('stxt').innerText=t;if(ok)document.getElementById('lupd').innerText=new Date().toLocaleTimeString('zh-TW',{hour12:false})}
 
-async function init(){const r=await fetch('/get_sys_config');CFG=await r.json();if(CFG.has_zeabur){ss(true,'已連線');sync();setInterval(sync,30000)}else{ss(false,'未設定');document.getElementById('mlog').innerText="❌ 缺少環境變數"}}
+async function init(){const r=await fetch('/get_sys_config');CFG=await r.json();if(CFG.has_zeabur){ss(true,'已連線');sync();setInterval(sync,30000)}else{ss(false,'未設定');document.getElementById('mlog').innerText="缺少環境變數"}}
 
-async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText="❌ "+d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="🌙 安靜中..."}}catch(e){ss(false,'連線失敗')}}
+async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText=d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="安靜中..."}}catch(e){ss(false,'連線失敗')}}
 
 function rl(d){const el=document.getElementById('mlog');const rc=d.logs.slice(-10);const tr=d.translated||'';
 el.innerHTML=rc.map((l,i)=>{const t=l.timestamp?new Date(l.timestamp).toLocaleTimeString('zh-TW',{hour12:false}):'--:--:--';const la=i===rc.length-1;
-return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">🌙 '+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight}
+return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">'+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight}
 
 // ========== SKILLS ==========
+const CORE_INFO={'SOUL.md':{d:'核心人格與行為準則',lv:5},'AGENTS.md':{d:'多代理協作框架',lv:4},'IDENTITY.md':{d:'身份定義',lv:3},'MEMORY.md':{d:'記憶索引系統',lv:5},'USER.md':{d:'使用者偏好',lv:2},'TOOLS.md':{d:'可用工具列表',lv:3},'BOOTSTRAP.md':{d:'啟動流程',lv:2},'HEARTBEAT.md':{d:'心跳配置',lv:1}};
+const MEM_INFO={'mem-crypto.md':'加密貨幣追蹤','mem-daily.md':'每日紀錄','mem-decisions.md':'決策記錄','mem-lessons.md':'學習經驗','mem-prefs.md':'偏好設定','mem-quest.md':'任務追蹤','mem-settings.md':'系統設定'};
+const SCR_INFO={'crypto_check.py':'加密貨幣價格監控','bounty_hunter.py':'賞金獵人系統','check_profit.py':'損益計算','jailbreak_pip.py':'套件安裝工具'};
+
 async function lsp(){
 const pg=document.getElementById('rpg');
 if(!SD){pg.innerHTML='<div class="loading">讀取夜璃資料中</div>';const r=await fetch('/get_status',{method:'POST'});SD=await r.json()}
-if(SD.error){pg.innerHTML='<div style="color:var(--red);padding:20px">❌ '+E(SD.error)+'</div>';return}
+if(SD.error){pg.innerHTML='<div style="color:var(--red);padding:20px">'+E(SD.error)+'</div>';return}
 const s=SD,cc=(s.core_files||[]).length,mc=(s.memory_files||[]).length,sc=(s.scripts||[]).length,kc=(s.skills||[]).length,tt=cc+mc+sc+kc;
-let h='<div class="rpg-h"><div class="rpg-t">⚔️ 夜璃 — 能力面板</div><div class="rpg-sub">'+E(s.identity||'AI Agent on OpenClaw')+'</div><div class="rpg-st">'+sb(tt,'TOTAL')+sb(cc,'核心')+sb(mc,'記憶')+sb(sc,'腳本')+sb(kc,'技能')+'</div></div><div class="rpg-tree">';
-h+=sC('💛','var(--accent)','核心系統',s.core_files||[],'core',s);
-h+=sC('🧠','var(--blue)','記憶模組',s.memory_files||[],'memory',s);
-h+=sC('🐍','var(--green)','Python 腳本',s.scripts||[],'script',s);
-h+=sC('⚡','var(--purple)','已安裝技能',s.skills||[],'skill',s);
+let h='<div class="rpg-h"><div class="rpg-t">夜璃 — 能力面板</div><div class="rpg-sub">'+E(s.identity||'AI Agent on OpenClaw')+'</div><div class="rpg-st">'+sb(tt,'TOTAL')+sb(cc,'核心')+sb(mc,'記憶')+sb(sc,'腳本')+sb(kc,'技能')+'</div></div><div class="rpg-tree">';
+h+=sC('var(--accent)','核心系統',s.core_files||[],'core',s);
+h+=sC('var(--blue)','記憶模組',s.memory_files||[],'memory',s);
+h+=sC('var(--green)','Python 腳本',s.scripts||[],'script',s);
+h+=sC('var(--purple)','已安裝技能',s.skills||[],'skill',s);
 h+='</div>';pg.innerHTML=h;
 pg.querySelectorAll('.sn').forEach(n=>{n.addEventListener('click',()=>{const d=n.nextElementSibling;if(d&&d.classList.contains('sdet')){n.classList.toggle('act');d.classList.toggle('open')}})})
 }
 function sb(v,l){return'<div class="stb"><div class="stv" style="color:'+(v>0?'var(--accent)':'#484f58')+'">'+v+'</div><div class="stl">'+l+'</div></div>'}
-function sC(ico,col,name,files,type,s){
-if(type==='skill'&&!files.length)return'<div class="scat"><div class="cath"><div class="catI" style="background:rgba(168,139,250,.1)">'+ico+'</div><div class="catN" style="color:'+col+'">'+name+'</div><div class="catC">0</div></div><div class="sn" style="opacity:.4;cursor:default"><div class="sorb" style="background:rgba(255,255,255,.03)">🔒</div><div class="sinf"><div class="snam" style="color:#484f58">尚未安裝技能</div><div class="sdsc">Skills 資料夾目前為空</div></div></div></div>';
-let h='<div class="scat"><div class="cath"><div class="catI" style="background:'+col+'15">'+ico+'</div><div class="catN" style="color:'+col+'">'+name+'</div><div class="catC">'+files.length+'</div></div>';
+function sC(col,name,files,type,s){
+if(type==='skill'&&!files.length)return'<div class="scat"><div class="cath"><div class="catI" style="background:rgba(255,255,255,.05);color:#484f58;font-size:11px">--</div><div class="catN" style="color:'+col+'">'+name+'</div><div class="catC">0</div></div><div class="sn" style="opacity:.4;cursor:default"><div class="sorb" style="background:rgba(255,255,255,.03);color:#484f58;font-size:11px">x</div><div class="sinf"><div class="snam" style="color:#484f58">尚未安裝技能</div><div class="sdsc">Skills 資料夾目前為空</div></div></div></div>';
+const catLetter={core:'C',memory:'M',script:'S',skill:'K'}[type]||'?';
+let h='<div class="scat"><div class="cath"><div class="catI" style="background:'+col+'15;color:'+col+';font-size:12px;font-weight:700">'+catLetter+'</div><div class="catN" style="color:'+col+'">'+name+'</div><div class="catC">'+files.length+'</div></div>';
 files.forEach((f,i)=>{
-const det=gD(f,type,s),lv=gL(f,type),oc=gOC(type),fi=gFI(f,type),uid='det_'+type+'_'+i;
-h+='<div class="sn"><div class="sorb" style="background:'+oc+'">'+fi+'</div><div class="sinf"><div class="snam">'+E(f)+'</div><div class="sdsc">'+E(gFD(f,type))+'</div></div><div class="slv">Lv.<span>'+lv+'</span></div></div>';
+const det=gD(f,type,s),lv=gLv(f,type),oc=gOC(type),uid='det_'+type+'_'+i;
+const initial=f.charAt(0).toUpperCase();
+h+='<div class="sn"><div class="sorb" style="background:'+oc+';color:var(--text);font-size:13px;font-weight:700;font-family:DotGothic16,monospace">'+initial+'</div><div class="sinf"><div class="snam">'+E(f)+'</div><div class="sdsc">'+E(gDesc(f,type))+'</div></div><div class="slv">Lv.<span>'+lv+'</span></div></div>';
 h+='<div class="sdet" id="'+uid+'">'+E(det)+'</div>';
 if(i<files.length-1)h+='<div class="conn"></div>'});
 return h+'</div>'}
 function gD(f,t,s){if(t==='core'){if(f==='MEMORY.md'&&s.memory_index)return s.memory_index.substring(0,800);if(f==='IDENTITY.md'&&s.identity)return s.identity;if(f==='SOUL.md'&&s.soul)return s.soul.substring(0,800)}if(t==='memory'){const m=(s.mem_summaries||[]).find(x=>x.file===f);if(m)return m.content.substring(0,800)}return'（無預覽資料）'}
-function gL(f,t){if(t==='core')return{'SOUL.md':5,'AGENTS.md':4,'IDENTITY.md':3,'MEMORY.md':5,'USER.md':2,'TOOLS.md':3,'BOOTSTRAP.md':2,'HEARTBEAT.md':1}[f]||1;if(t==='memory')return 3;if(t==='script')return 2;return 1}
+function gLv(f,t){if(t==='core')return(CORE_INFO[f]||{}).lv||1;if(t==='memory')return 3;if(t==='script')return 2;return 1}
 function gOC(t){return{core:'rgba(251,191,36,.15)',memory:'rgba(96,165,250,.15)',script:'rgba(34,197,94,.15)',skill:'rgba(167,139,250,.15)'}[t]}
-function gFI(f,t){if(t==='core')return{'SOUL.md':'🔥','AGENTS.md':'🤖','IDENTITY.md':'🦞','MEMORY.md':'📋','USER.md':'👤','TOOLS.md':'🔧','BOOTSTRAP.md':'🚀','HEARTBEAT.md':'💓'}[f]||'📄';if(t==='memory')return'💾';if(t==='script')return'⚙️';return'⚡'}
-function gFD(f,t){if(t==='core')return{'SOUL.md':'核心人格與行為準則','AGENTS.md':'多代理協作框架','IDENTITY.md':'身份定義','MEMORY.md':'記憶索引系統','USER.md':'使用者偏好','TOOLS.md':'可用工具列表','BOOTSTRAP.md':'啟動流程','HEARTBEAT.md':'心跳配置'}[f]||'';
-if(t==='memory')return{'mem-crypto.md':'加密貨幣追蹤','mem-daily.md':'每日紀錄','mem-decisions.md':'決策記錄','mem-lessons.md':'學習經驗','mem-prefs.md':'偏好設定','mem-quest.md':'任務追蹤','mem-settings.md':'系統設定'}[f]||'記憶檔案';
-if(t==='script')return{'crypto_check.py':'加密貨幣價格監控','bounty_hunter.py':'賞金獵人系統','check_profit.py':'損益計算','jailbreak_pip.py':'套件安裝工具'}[f]||'Python 腳本';return''}
+function gDesc(f,t){if(t==='core')return(CORE_INFO[f]||{}).d||'';if(t==='memory')return MEM_INFO[f]||'記憶檔案';if(t==='script')return SCR_INFO[f]||'Python 腳本';return''}
 
 // ========== 3D MEMORY GRAPH ==========
-let scene,camera,renderer,nodeGroup,edgeGroup,raycaster,mouse,nodeDataMap={},controls;
-let isRotating=false,prevMouse={x:0,y:0},autoRotate=true;
+let scene,camera,renderer,raycaster,mouse;
+let nodeGroup,edgeGroup,clickableMeshes=[];
+let nodeDataMap={};
 let labelEls=[];
+let isRotating=false,prevMouse={x:0,y:0},autoRotate=true;
 
 async function lmp(){
 if(!SD){const r=await fetch('/get_status',{method:'POST'});SD=await r.json()}
 if(SD.error)return;
-const wrap=document.getElementById('mcw');
-// 避免重複初始化
-if(renderer){nodeGroup.clear();edgeGroup.clear();labelEls.forEach(l=>l.lbl.remove());labelEls=[];buildNodes3D(SD);return}
+if(renderer){
+  // 重建
+  while(nodeGroup.children.length)nodeGroup.remove(nodeGroup.children[0]);
+  while(edgeGroup.children.length)edgeGroup.remove(edgeGroup.children[0]);
+  clickableMeshes=[];nodeDataMap={};
+  labelEls.forEach(l=>l.lbl.remove());labelEls=[];
+  buildNodes3D(SD);return;
+}
 init3D(SD);
 document.getElementById('mleg').innerHTML=[{c:'#fbbf24',l:'中心'},{c:'#ef4444',l:'核心'},{c:'#60a5fa',l:'記憶'},{c:'#22c55e',l:'腳本'}].map(x=>'<div class="mli"><div class="mld" style="background:'+x.c+'"></div>'+x.l+'</div>').join('')}
 
 function init3D(s){
 const wrap=document.getElementById('mcw');
 const W=wrap.clientWidth,H=wrap.clientHeight;
-
 scene=new THREE.Scene();
 camera=new THREE.PerspectiveCamera(60,W/H,1,2000);
 camera.position.set(0,0,400);
-
 renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
-renderer.setSize(W,H);renderer.setPixelRatio(devicePixelRatio);
+renderer.setSize(W,H);renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setClearColor(0x080c12,1);
 wrap.insertBefore(renderer.domElement,wrap.firstChild);
-
-// Lights
 scene.add(new THREE.AmbientLight(0x404050,0.6));
 const pl=new THREE.PointLight(0xfbbf24,1,600);pl.position.set(0,0,200);scene.add(pl);
-
 raycaster=new THREE.Raycaster();mouse=new THREE.Vector2();
 nodeGroup=new THREE.Group();edgeGroup=new THREE.Group();
 scene.add(edgeGroup);scene.add(nodeGroup);
-
 buildNodes3D(s);
 setupInteraction3D(wrap);
 animate3D();
-window.addEventListener('resize',()=>{
-const w2=wrap.clientWidth,h2=wrap.clientHeight;
-camera.aspect=w2/h2;camera.updateProjectionMatrix();renderer.setSize(w2,h2)});
+window.addEventListener('resize',()=>{const w2=wrap.clientWidth,h2=wrap.clientHeight;camera.aspect=w2/h2;camera.updateProjectionMatrix();renderer.setSize(w2,h2)});
 }
 
 function makeNode3D(id,label,pos,radius,color,content){
@@ -362,55 +364,52 @@ const geo=new THREE.SphereGeometry(radius,24,24);
 const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(color),emissive:new THREE.Color(color),emissiveIntensity:0.3,transparent:true,opacity:0.85});
 const mesh=new THREE.Mesh(geo,mat);
 mesh.position.copy(pos);
-mesh.userData={id,label,content,color,radius};
-nodeDataMap[id]={mesh,label,content,color};
+mesh.userData={id:id,label:label,content:content,color:color};
+nodeDataMap[id]={mesh:mesh,label:label,content:content,color:color};
 nodeGroup.add(mesh);
+clickableMeshes.push(mesh);
 
-// 光暈
+// 光暈 - 禁止 raycast
 const glowGeo=new THREE.SphereGeometry(radius*1.6,16,16);
 const glowMat=new THREE.MeshBasicMaterial({color:new THREE.Color(color),transparent:true,opacity:0.08});
 const glow=new THREE.Mesh(glowGeo,glowMat);
 glow.position.copy(pos);
+glow.raycast=function(){};
 nodeGroup.add(glow);
 
 // HTML label
 const lbl=document.createElement('div');
-lbl.style.cssText='position:absolute;color:#c8d6e5;font-size:10px;font-family:"Noto Sans TC",sans-serif;white-space:nowrap;text-shadow:0 0 4px #000,0 0 8px #000;transform:translate(-50%,0);pointer-events:none';
-lbl.innerText=label;
+lbl.style.cssText='position:absolute;color:#c8d6e5;font-size:10px;font-family:Noto Sans TC,sans-serif;white-space:nowrap;text-shadow:0 0 4px #000,0 0 8px #000;transform:translate(-50%,0);pointer-events:none';
+lbl.textContent=label;
 document.getElementById('labels-wrap').appendChild(lbl);
-labelEls.push({mesh,lbl,offset:radius+6});
-
+labelEls.push({mesh:mesh,lbl:lbl,offset:radius+6});
 return mesh;
 }
 
 function buildNodes3D(s){
-// Center
-makeNode3D('core','🌙 夜璃',new THREE.Vector3(0,0,0),20,'#fbbf24',s.identity||'AI Agent');
+makeNode3D('center','夜璃',new THREE.Vector3(0,0,0),20,'#fbbf24',s.identity||'AI Agent');
 
-// Core ring (horizontal circle)
 const cf=s.core_files||[];
 const ccm={'SOUL.md':'#ef4444','AGENTS.md':'#f97316','IDENTITY.md':'#fbbf24','MEMORY.md':'#22d3ee','USER.md':'#a78bfa','TOOLS.md':'#22c55e','BOOTSTRAP.md':'#6366f1','HEARTBEAT.md':'#f472b6'};
 cf.forEach((f,i)=>{
 const a=(i/cf.length)*Math.PI*2;
 const p=new THREE.Vector3(Math.cos(a)*90,Math.sin(a)*90,(Math.random()-0.5)*30);
-const n=makeNode3D('c_'+f,f.replace('.md',''),p,10,ccm[f]||'#60a5fa',gD(f,'core',s));
+makeNode3D('c_'+f,f.replace('.md',''),p,10,ccm[f]||'#60a5fa',gD(f,'core',s));
 addEdge3D(new THREE.Vector3(0,0,0),p,ccm[f]||'#60a5fa');
 });
 
-// Memory ring (tilted)
 const mf=s.memory_files||[];
 const mcm={'mem-crypto.md':'#fb923c','mem-daily.md':'#60a5fa','mem-decisions.md':'#a78bfa','mem-lessons.md':'#22c55e','mem-prefs.md':'#f472b6','mem-quest.md':'#fbbf24','mem-settings.md':'#6366f1'};
 mf.forEach((f,i)=>{
 const a=(i/mf.length)*Math.PI*2;
 const p=new THREE.Vector3(Math.cos(a)*160,Math.sin(a)*100+40,(Math.sin(a*2))*60);
 const mc=(s.mem_summaries||[]).find(x=>x.file===f);
-makeNode3D('m_'+f,f.replace('mem-','').replace('.md',''),p,8,mcm[f]||'#60a5fa',mc?mc.content.substring(0,800):'');
-// Connect to MEMORY.md
+const shortName=f.replace('mem-','').replace('.md','');
+makeNode3D('m_'+f,shortName,p,8,mcm[f]||'#60a5fa',mc?mc.content.substring(0,800):'');
 const memNode=nodeDataMap['c_MEMORY.md'];
 if(memNode)addEdge3D(memNode.mesh.position,p,mcm[f]||'#60a5fa');
 });
 
-// Scripts (outer)
 const sc=s.scripts||[];
 sc.forEach((f,i)=>{
 const a=(i/sc.length)*Math.PI*2+Math.PI/4;
@@ -430,85 +429,106 @@ edgeGroup.add(new THREE.Line(geo,mat));
 
 function setupInteraction3D(wrap){
 const cv=renderer.domElement;
-let dragDist=0,mouseDownPos={x:0,y:0};
+let dragDist=0;
 
-cv.addEventListener('mousedown',e=>{isRotating=true;autoRotate=false;dragDist=0;mouseDownPos={x:e.clientX,y:e.clientY};prevMouse={x:e.clientX,y:e.clientY}});
-cv.addEventListener('mousemove',e=>{if(!isRotating)return;const dx=e.clientX-prevMouse.x,dy=e.clientY-prevMouse.y;
+cv.addEventListener('mousedown',e=>{isRotating=true;autoRotate=false;dragDist=0;prevMouse={x:e.clientX,y:e.clientY}});
+cv.addEventListener('mousemove',e=>{if(!isRotating)return;
+const dx=e.clientX-prevMouse.x,dy=e.clientY-prevMouse.y;
 dragDist+=Math.abs(dx)+Math.abs(dy);
-nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
+nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;
+edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
 prevMouse={x:e.clientX,y:e.clientY}});
-cv.addEventListener('mouseup',e=>{
-isRotating=false;
-if(dragDist<5){handleNodeClick(e.clientX,e.clientY,cv)}
-});
-cv.addEventListener('mouseleave',()=>isRotating=false);
-cv.addEventListener('wheel',e=>{e.preventDefault();camera.position.z+=e.deltaY*0.5;camera.position.z=Math.max(100,Math.min(800,camera.position.z))},{passive:false});
+cv.addEventListener('mouseup',e=>{isRotating=false;if(dragDist<6)doNodeClick(e.clientX,e.clientY)});
+cv.addEventListener('mouseleave',()=>{isRotating=false});
+cv.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(100,Math.min(800,camera.position.z+e.deltaY*0.5))},{passive:false});
 
 // Touch
-let touchStart=null,touchDragDist=0;
-cv.addEventListener('touchstart',e=>{if(e.touches.length===1){isRotating=true;autoRotate=false;touchDragDist=0;touchStart=Date.now();prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}});
-cv.addEventListener('touchmove',e=>{e.preventDefault();if(isRotating&&e.touches.length===1){const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
-touchDragDist+=Math.abs(dx)+Math.abs(dy);
-nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
-prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}},{passive:false});
-cv.addEventListener('touchend',e=>{isRotating=false;
-if(touchDragDist<10&&e.changedTouches.length===1){const t=e.changedTouches[0];handleNodeClick(t.clientX,t.clientY,cv)}});
+let tDrag=0;
+cv.addEventListener('touchstart',e=>{if(e.touches.length===1){isRotating=true;autoRotate=false;tDrag=0;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}},{passive:true});
+cv.addEventListener('touchmove',e=>{e.preventDefault();if(!isRotating||e.touches.length!==1)return;
+const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
+tDrag+=Math.abs(dx)+Math.abs(dy);
+nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;
+edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
+prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}},{passive:false});
+cv.addEventListener('touchend',e=>{isRotating=false;if(tDrag<12&&e.changedTouches.length===1){doNodeClick(e.changedTouches[0].clientX,e.changedTouches[0].clientY)}},{passive:true});
 }
 
-function handleNodeClick(cx,cy,cv){
-const rect=cv.getBoundingClientRect();
+function doNodeClick(cx,cy){
+const rect=renderer.domElement.getBoundingClientRect();
 mouse.x=((cx-rect.left)/rect.width)*2-1;
 mouse.y=-((cy-rect.top)/rect.height)*2+1;
 raycaster.setFromCamera(mouse,camera);
-const hits=raycaster.intersectObjects(nodeGroup.children);
-const hit=hits.find(h=>h.object.userData&&h.object.userData.id);
-if(hit){
+// 只對可點擊的 mesh 做 raycast
+const hits=raycaster.intersectObjects(clickableMeshes,false);
+if(!hits.length)return;
+const hit=hits[0];
 const d=hit.object.userData;
-document.getElementById('msbt').innerText=d.label;
+if(!d||!d.id)return;
+
+// 開啟側邊欄
+document.getElementById('msbt').textContent=d.label;
 const body=document.getElementById('msbb');
-const hasContent=d.content&&d.content.trim();
-body.innerHTML=(hasContent?'<div class="det-raw" style="margin-bottom:12px">'+E(d.content)+'</div>':'<div style="color:#484f58">（無內容）</div>')+(hasContent&&CFG.has_gemini?'<div onclick="trSb(this)" style="display:inline-block;padding:5px 14px;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.3);border-radius:5px;font-size:11px;cursor:pointer;margin-top:4px">🌐 翻譯成中文</div>':'');
+const hasContent=d.content&&d.content.trim()&&d.content!=='（無預覽資料）';
+
+let html='';
+if(hasContent){
+html+='<div id="sb-content" style="margin-bottom:14px">'+E(d.content)+'</div>';
+html+='<div id="sb-tr-btn" onclick="doTranslate()" style="display:inline-block;padding:6px 16px;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.3);border-radius:5px;font-size:12px;cursor:pointer;user-select:none">翻譯成中文</div>';
+}else{
+html='<div style="color:#484f58">（無內容）</div>';
+}
+body.innerHTML=html;
 document.getElementById('msb').classList.add('open');
 document.getElementById('mhint').style.display='none';
-nodeGroup.children.forEach(c=>{if(c.material&&c.material.emissiveIntensity!==undefined)c.material.emissiveIntensity=c===hit.object?0.8:0.3});
-}}
+
+// Highlight
+clickableMeshes.forEach(m=>{m.material.emissiveIntensity=m===hit.object?0.8:0.3});
+}
 
 let trCache={};
-async function trSb(btn){
-if(btn.classList.contains('done'))return;
-btn.innerText='⏳ 翻譯中...';btn.style.opacity='0.5';btn.classList.add('done');
-const raw=document.querySelector('#msbb .det-raw');
-if(!raw)return;
-const text=raw.innerText;
+async function doTranslate(){
+const btn=document.getElementById('sb-tr-btn');
+const content=document.getElementById('sb-content');
+if(!btn||!content)return;
+const text=content.textContent;
+if(!text)return;
 const key=text.substring(0,200);
-if(trCache[key]){raw.innerText=trCache[key];btn.innerText='✅ 已翻譯';return}
-try{const r=await fetch('/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});
+
+btn.textContent='翻譯中...';btn.style.opacity='0.5';btn.style.pointerEvents='none';
+
+if(trCache[key]){content.textContent=trCache[key];btn.textContent='已翻譯';return}
+
+try{
+const r=await fetch('/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:text})});
 const d=await r.json();
-if(d.translated){trCache[key]=d.translated;raw.innerText=d.translated;btn.innerText='✅ 已翻譯'}
-else{btn.innerText='⏳ 冷卻中，稍後再試';btn.style.opacity='1';btn.classList.remove('done')}
-}catch(e){btn.innerText='❌ 失敗';btn.style.opacity='1';btn.classList.remove('done')}}
+if(d.translated&&d.translated.trim()){
+trCache[key]=d.translated;
+content.textContent=d.translated;
+btn.textContent='已翻譯';
+}else{
+btn.textContent='冷卻中，稍後再試';btn.style.opacity='1';btn.style.pointerEvents='auto';
+}
+}catch(e){btn.textContent='翻譯失敗';btn.style.opacity='1';btn.style.pointerEvents='auto'}
+}
 
 function animate3D(){
 requestAnimationFrame(animate3D);
 if(autoRotate){nodeGroup.rotation.y+=0.002;edgeGroup.rotation.y+=0.002}
 renderer.render(scene,camera);
-// 更新 HTML 標籤位置
 const W=renderer.domElement.clientWidth,H=renderer.domElement.clientHeight;
 labelEls.forEach(({mesh,lbl,offset})=>{
-const wp=new THREE.Vector3();
-mesh.getWorldPosition(wp);
+const wp=new THREE.Vector3();mesh.getWorldPosition(wp);
 const v=wp.clone().project(camera);
-const x=(v.x*0.5+0.5)*W;
-const y=(-v.y*0.5+0.5)*H;
 if(v.z>1){lbl.style.display='none';return}
 lbl.style.display='';
-lbl.style.left=x+'px';lbl.style.top=(y+offset*0.8)+'px';
+lbl.style.left=((v.x*0.5+0.5)*W)+'px';
+lbl.style.top=((-v.y*0.5+0.5)*H+offset*0.8)+'px';
 lbl.style.opacity=v.z<0.99?'1':'0.3';
 });
 }
 
-function csb(){document.getElementById('msb').classList.remove('open');
-nodeGroup.children.forEach(c=>{if(c.material&&c.material.emissiveIntensity!==undefined)c.material.emissiveIntensity=0.3})}
+function csb(){document.getElementById('msb').classList.remove('open');clickableMeshes.forEach(m=>{m.material.emissiveIntensity=0.3})}
 function E(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 
 init();
