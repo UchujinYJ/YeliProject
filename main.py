@@ -321,7 +321,7 @@ study:{
 },
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
-  left:'56%',top:'41%',width:'11%'
+  left:'65%',top:'30%',width:'11%'
 }
 };
 let curActivity='idle',frameIdx=0,spriteTimer=null;
