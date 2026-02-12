@@ -156,13 +156,35 @@ def home(): return HTML_CODE
 @app.get("/get_sys_config")
 def api_get_config(): return JSONResponse(content=get_sys_config())
 
+import re
+
+def is_meaningful_log(msg):
+    """過濾掉 JSON 碎片、空行、純符號等垃圾 log"""
+    s = msg.strip()
+    if not s:
+        return False
+    # 純 JSON 符號或括號
+    if re.match(r'^[\[\]{},\s]*$', s):
+        return False
+    # 太短且沒有中英文字母
+    if len(s) < 4 and not re.search(r'[a-zA-Z\u4e00-\u9fff]', s):
+        return False
+    # 純數字或純 timestamp
+    if re.match(r'^[\d\s:.\-T/Z]+$', s):
+        return False
+    return True
+
 @app.post("/get_logs")
 def get_logs():
     result = fetch_runtime_logs()
     if result.get("logs"):
-        last_msg = result["logs"][-1]["content"]
-        translated = translate_with_gemini(last_msg)
-        result["translated"] = translated
+        # 過濾垃圾行
+        result["logs"] = [l for l in result["logs"] if is_meaningful_log(l["content"])]
+        # 翻譯最後一條有意義的 log
+        if result["logs"]:
+            last_msg = result["logs"][-1]["content"]
+            translated = translate_with_gemini(last_msg)
+            result["translated"] = translated
     return JSONResponse(content=result)
 
 @app.post("/get_status")
@@ -299,7 +321,7 @@ study:{
 },
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
-  left:'53.5%',top:'38.5%',width:'11%'
+  left:'56%',top:'41%',width:'11%'
 }
 };
 let curActivity='idle',frameIdx=0,spriteTimer=null;
