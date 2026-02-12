@@ -212,8 +212,11 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 .tab.active::after{content:'';position:absolute;bottom:0;left:20%;right:20%;height:2px;background:var(--accent);border-radius:2px 2px 0 0}
 .content{flex:1;position:relative;overflow:hidden}
 .page{display:none;width:100%;height:100%;position:absolute;top:0;left:0}.page.active{display:flex}
-.room-view{background:url('/static/bg.png') no-repeat center center;background-size:contain;background-color:#080c12;image-rendering:pixelated;width:100%;height:100%;position:relative}
-.mlog{position:absolute;bottom:16px;left:3%;width:94%;max-height:160px;background:rgba(8,12,18,.92);border:1px solid #1e2a42;padding:10px 12px;font-size:11px;overflow-y:auto;border-radius:6px;backdrop-filter:blur(8px);font-family:'DotGothic16',monospace}
+.room-view{background-color:#080c12;width:100%;height:100%;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.room-inner{position:relative;display:inline-block;max-width:100%;max-height:100%}
+.room-inner img.room-bg{display:block;max-width:100%;max-height:100%;image-rendering:pixelated}
+.sprite{position:absolute;image-rendering:pixelated;pointer-events:none}
+.mlog{position:absolute;bottom:16px;left:3%;width:94%;max-height:160px;background:rgba(8,12,18,.92);border:1px solid #1e2a42;padding:10px 12px;font-size:11px;overflow-y:auto;border-radius:6px;backdrop-filter:blur(8px);font-family:'DotGothic16',monospace;z-index:20}
 .le{margin-bottom:3px;line-height:1.5}.lt{color:var(--accent);margin-right:8px;opacity:.7}.lm{color:#8b949e}.ltr{color:var(--cyan);font-style:italic;display:block;margin-left:70px;margin-top:1px;font-size:11px}
 /* RPG */
 .rpg{width:100%;height:100%;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 0%,rgba(251,191,36,.03) 0%,transparent 60%),var(--bg);overflow:hidden}
@@ -237,12 +240,12 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 .conn{width:24px;height:20px;margin-left:18px;border-left:1px dashed #1e2a42}
 /* MEMORY 3D */
 .mp{width:100%;height:100%;display:flex;background:var(--bg);overflow:hidden}
-.mcw{flex:1;position:relative}
+.mcw{flex:1;position:relative;cursor:grab;overflow:hidden}
 .msb{width:300px;background:#0d1117;border-left:1px solid #21262d;overflow-y:auto;flex-shrink:0;display:none}.msb.open{display:block}
 .msbh{padding:14px 16px;border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:center}
 .msbt{font-size:14px;font-weight:700;color:var(--accent)}.msbc{cursor:pointer;color:#484f58;font-size:18px}
 .msbb{padding:12px 16px;font-size:11px;color:#8b949e;white-space:pre-wrap;line-height:1.7}
-.mleg{position:absolute;bottom:12px;left:12px;background:rgba(13,17,23,.9);border:1px solid #21262d;border-radius:6px;padding:8px 12px;font-size:10px;z-index:10}
+.mleg{position:absolute;bottom:12px;left:12px;background:rgba(13,17,23,.9);border:1px solid #21262d;border-radius:6px;padding:8px 12px;font-size:10px;z-index:10;pointer-events:none}
 .mli{display:flex;align-items:center;gap:6px;margin-bottom:3px}.mld{width:8px;height:8px;border-radius:50%}
 .mhint{position:absolute;top:12px;left:50%;transform:translateX(-50%);color:#484f58;font-size:11px;pointer-events:none;font-family:'DotGothic16',monospace;z-index:10}
 .loading{color:#484f58;text-align:center;padding:40px;font-family:'DotGothic16',monospace}
@@ -258,9 +261,9 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 <div class="tab" onclick="sw('memory',this)">MEMORY</div>
 </div>
 <div class="content">
-<div id="p-office" class="page active" style="display:block"><div class="room-view"><div class="mlog" id="mlog">初始化連線...</div></div></div>
+<div id="p-office" class="page active" style="display:block"><div class="room-view"><div class="room-inner" id="room-inner"><img class="room-bg" src="/static/bg.png" alt=""><img id="char-sprite" class="sprite" src="" alt="" style="display:none"></div><div class="mlog" id="mlog">初始化連線...</div></div></div>
 <div id="p-skills" class="page"><div class="rpg" id="rpg"><div class="loading">載入中</div></div></div>
-<div id="p-memory" class="page"><div class="mp"><div class="mcw" id="mcw"><div id="labels-wrap" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:5"></div><div class="mhint" id="mhint">拖曳旋轉 · 滾輪縮放 · 點擊節點查看詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">✕</span></div><div class="msbb" id="msbb"></div></div></div></div>
+<div id="p-memory" class="page"><div class="mp"><div class="mcw" id="mcw"><div id="labels-wrap" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:1"></div><div class="mhint" id="mhint">拖曳旋轉 / 滾輪縮放 / 點擊節點查看詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">x</span></div><div class="msbb" id="msbb"></div></div></div></div>
 </div>
 <script>
 let CFG={},LL=[],SD=null;
@@ -280,7 +283,69 @@ async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const
 
 function rl(d){const el=document.getElementById('mlog');const rc=d.logs.slice(-10);const tr=d.translated||'';
 el.innerHTML=rc.map((l,i)=>{const t=l.timestamp?new Date(l.timestamp).toLocaleTimeString('zh-TW',{hour12:false}):'--:--:--';const la=i===rc.length-1;
-return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">'+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight}
+return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">'+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight;
+// 根據最新 log 判斷活動
+if(rc.length>0)detectActivity(rc)}
+
+// ========== 角色動畫 ==========
+const ACTIVITIES={
+crypto:{
+  frames:['/static/crypto_1.png','/static/crypto_2.png','/static/crypto_3.png','/static/crypto_4.png'],
+  // 對齊房間電腦桌（sprite 自帶桌椅螢幕）
+  left:'24.5%',top:'13%',width:'20%'
+},
+study:{
+  frames:['/static/study_1.png','/static/study_2.png','/static/study_3.png'],
+  // 對齊房間懶人沙發（sprite 自帶沙發）
+  left:'37%',top:'30%',width:'17%'
+},
+idle:{
+  frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
+  // 對齊房間畫架（sprite 自帶畫架凳子）
+  left:'53%',top:'33%',width:'14%'
+}
+};
+let curActivity='idle',frameIdx=0,spriteTimer=null;
+
+function detectActivity(logs){
+// 檢查最近幾筆 log 的關鍵字
+const recent=logs.slice(-5).map(l=>l.content.toLowerCase()).join(' ');
+let act='idle';
+if(recent.includes('crypto')||recent.includes('price')||recent.includes('btc')||recent.includes('eth')||recent.includes('bitcoin')||recent.includes('coin')||recent.includes('profit')||recent.includes('exchange')||recent.includes('usd')||recent.includes('jpy')||recent.includes('rate')||recent.includes('bounty')){
+  act='crypto';
+}else if(recent.includes('search')||recent.includes('web_search')||recent.includes('learn')||recent.includes('read')||recent.includes('fetch')||recent.includes('research')||recent.includes('study')||recent.includes('google')||recent.includes('brave')||recent.includes('http')||recent.includes('url')){
+  act='study';
+}else if(recent.includes('write')||recent.includes('creative')||recent.includes('draw')||recent.includes('paint')||recent.includes('idle')||recent.includes('heartbeat')||recent.includes('memory')||recent.includes('save')){
+  act='idle';
+}
+setActivity(act);
+}
+
+function setActivity(act){
+if(act===curActivity&&spriteTimer)return;
+curActivity=act;
+frameIdx=0;
+const sp=document.getElementById('char-sprite');
+const a=ACTIVITIES[act];
+if(!a||!sp)return;
+sp.style.left=a.left;
+sp.style.top=a.top;
+sp.style.width=a.width;
+sp.style.height='auto';
+sp.src=a.frames[0];
+sp.style.display='block';
+if(spriteTimer)clearInterval(spriteTimer);
+spriteTimer=setInterval(()=>{
+  frameIdx=(frameIdx+1)%a.frames.length;
+  sp.src=a.frames[frameIdx];
+},600);
+}
+
+// 初始啟動 idle 動畫 + 預載入所有角色圖
+setTimeout(()=>{
+Object.values(ACTIVITIES).forEach(a=>a.frames.forEach(f=>{const i=new Image();i.src=f}));
+setActivity('idle');
+},500);
 
 // ========== SKILLS ==========
 const CORE_INFO={'SOUL.md':{d:'核心人格與行為準則',lv:5},'AGENTS.md':{d:'多代理協作框架',lv:4},'IDENTITY.md':{d:'身份定義',lv:3},'MEMORY.md':{d:'記憶索引系統',lv:5},'USER.md':{d:'使用者偏好',lv:2},'TOOLS.md':{d:'可用工具列表',lv:3},'BOOTSTRAP.md':{d:'啟動流程',lv:2},'HEARTBEAT.md':{d:'心跳配置',lv:1}};
@@ -347,7 +412,11 @@ camera.position.set(0,0,400);
 renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
 renderer.setSize(W,H);renderer.setPixelRatio(Math.min(devicePixelRatio,2));
 renderer.setClearColor(0x080c12,1);
-wrap.insertBefore(renderer.domElement,wrap.firstChild);
+renderer.domElement.style.position='absolute';
+renderer.domElement.style.top='0';
+renderer.domElement.style.left='0';
+renderer.domElement.style.zIndex='2';
+wrap.appendChild(renderer.domElement);
 scene.add(new THREE.AmbientLight(0x404050,0.6));
 const pl=new THREE.PointLight(0xfbbf24,1,600);pl.position.set(0,0,200);scene.add(pl);
 raycaster=new THREE.Raycaster();mouse=new THREE.Vector2();
@@ -428,30 +497,42 @@ edgeGroup.add(new THREE.Line(geo,mat));
 }
 
 function setupInteraction3D(wrap){
-const cv=renderer.domElement;
-let dragDist=0;
+const el=wrap;
+let downPos=null;
 
-cv.addEventListener('mousedown',e=>{isRotating=true;autoRotate=false;dragDist=0;prevMouse={x:e.clientX,y:e.clientY}});
-cv.addEventListener('mousemove',e=>{if(!isRotating)return;
+el.addEventListener('mousedown',e=>{isRotating=true;autoRotate=false;downPos={x:e.clientX,y:e.clientY};prevMouse={x:e.clientX,y:e.clientY}});
+el.addEventListener('mousemove',e=>{if(!isRotating)return;
 const dx=e.clientX-prevMouse.x,dy=e.clientY-prevMouse.y;
-dragDist+=Math.abs(dx)+Math.abs(dy);
 nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;
 edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
 prevMouse={x:e.clientX,y:e.clientY}});
-cv.addEventListener('mouseup',e=>{isRotating=false;if(dragDist<6)doNodeClick(e.clientX,e.clientY)});
-cv.addEventListener('mouseleave',()=>{isRotating=false});
-cv.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(100,Math.min(800,camera.position.z+e.deltaY*0.5))},{passive:false});
+el.addEventListener('mouseup',e=>{
+isRotating=false;
+if(downPos){
+const dist=Math.hypot(e.clientX-downPos.x,e.clientY-downPos.y);
+if(dist<8)doNodeClick(e.clientX,e.clientY);
+}
+downPos=null;
+});
+el.addEventListener('mouseleave',()=>{isRotating=false;downPos=null});
+el.addEventListener('wheel',e=>{e.preventDefault();camera.position.z=Math.max(100,Math.min(800,camera.position.z+e.deltaY*0.5))},{passive:false});
 
 // Touch
-let tDrag=0;
-cv.addEventListener('touchstart',e=>{if(e.touches.length===1){isRotating=true;autoRotate=false;tDrag=0;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}},{passive:true});
-cv.addEventListener('touchmove',e=>{e.preventDefault();if(!isRotating||e.touches.length!==1)return;
+let tDownPos=null;
+el.addEventListener('touchstart',e=>{if(e.touches.length===1){isRotating=true;autoRotate=false;tDownPos={x:e.touches[0].clientX,y:e.touches[0].clientY};prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}},{passive:true});
+el.addEventListener('touchmove',e=>{e.preventDefault();if(!isRotating||e.touches.length!==1)return;
 const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
-tDrag+=Math.abs(dx)+Math.abs(dy);
 nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;
 edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
 prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}},{passive:false});
-cv.addEventListener('touchend',e=>{isRotating=false;if(tDrag<12&&e.changedTouches.length===1){doNodeClick(e.changedTouches[0].clientX,e.changedTouches[0].clientY)}},{passive:true});
+el.addEventListener('touchend',e=>{isRotating=false;
+if(tDownPos&&e.changedTouches.length===1){
+const t=e.changedTouches[0];
+const dist=Math.hypot(t.clientX-tDownPos.x,t.clientY-tDownPos.y);
+if(dist<15)doNodeClick(t.clientX,t.clientY);
+}
+tDownPos=null;
+},{passive:true});
 }
 
 function doNodeClick(cx,cy){
@@ -459,11 +540,12 @@ const rect=renderer.domElement.getBoundingClientRect();
 mouse.x=((cx-rect.left)/rect.width)*2-1;
 mouse.y=-((cy-rect.top)/rect.height)*2+1;
 raycaster.setFromCamera(mouse,camera);
-// 只對可點擊的 mesh 做 raycast
 const hits=raycaster.intersectObjects(clickableMeshes,false);
+console.log('[Memory] click at',mouse.x.toFixed(2),mouse.y.toFixed(2),'hits:',hits.length,'meshes:',clickableMeshes.length);
 if(!hits.length)return;
 const hit=hits[0];
 const d=hit.object.userData;
+console.log('[Memory] hit node:',d.id,d.label);
 if(!d||!d.id)return;
 
 // 開啟側邊欄
