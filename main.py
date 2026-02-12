@@ -73,7 +73,10 @@ def fetch_runtime_logs():
         if "errors" in data:
             return {"logs": [], "error": data["errors"][0].get("message", "GraphQL 錯誤")}
         logs = data.get("data", {}).get("runtimeLogs", [])
-        return {"logs": [{"content": l["message"], "timestamp": l["timestamp"]} for l in logs]}
+        # Zeabur API 回傳最新在前面，反轉讓最新在最後（方便前端 slice(-10) 取最新）
+        formatted = [{"content": l["message"], "timestamp": l["timestamp"]} for l in logs]
+        formatted.reverse()
+        return {"logs": formatted}
     except Exception as e:
         return {"logs": [], "error": f"連線錯誤: {str(e)}"}
 
