@@ -317,7 +317,7 @@ crypto:{
 },
 study:{
   frames:['/static/study_1.png','/static/study_2.png','/static/study_3.png'],
-  left:'38%',top:'28.1%',width:'14%'
+  left:'40.5%',top:'30.5%',width:'14%'
 },
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
@@ -475,6 +475,11 @@ return mesh;
 }
 
 function buildNodes3D(s){
+// 中文標籤對照
+const CORE_LABELS={'SOUL.md':'靈魂','AGENTS.md':'代理','IDENTITY.md':'身份','MEMORY.md':'記憶索引','USER.md':'使用者','TOOLS.md':'工具','BOOTSTRAP.md':'啟動','HEARTBEAT.md':'心跳'};
+const MEM_LABELS={'mem-crypto.md':'加密貨幣','mem-daily.md':'每日紀錄','mem-decisions.md':'決策','mem-lessons.md':'經驗','mem-prefs.md':'偏好','mem-quest.md':'任務','mem-settings.md':'設定'};
+const SCR_LABELS={'crypto_check.py':'幣價監控','bounty_hunter.py':'賞金獵人','check_profit.py':'損益計算','jailbreak_pip.py':'套件工具'};
+
 makeNode3D('center','夜璃',new THREE.Vector3(0,0,0),20,'#fbbf24',s.identity||'AI Agent');
 
 const cf=s.core_files||[];
@@ -482,7 +487,7 @@ const ccm={'SOUL.md':'#ef4444','AGENTS.md':'#f97316','IDENTITY.md':'#fbbf24','ME
 cf.forEach((f,i)=>{
 const a=(i/cf.length)*Math.PI*2;
 const p=new THREE.Vector3(Math.cos(a)*90,Math.sin(a)*90,(Math.random()-0.5)*30);
-makeNode3D('c_'+f,f.replace('.md',''),p,10,ccm[f]||'#60a5fa',gD(f,'core',s));
+makeNode3D('c_'+f,CORE_LABELS[f]||f.replace('.md',''),p,10,ccm[f]||'#60a5fa',gD(f,'core',s));
 addEdge3D(new THREE.Vector3(0,0,0),p,ccm[f]||'#60a5fa');
 });
 
@@ -492,8 +497,7 @@ mf.forEach((f,i)=>{
 const a=(i/mf.length)*Math.PI*2;
 const p=new THREE.Vector3(Math.cos(a)*160,Math.sin(a)*100+40,(Math.sin(a*2))*60);
 const mc=(s.mem_summaries||[]).find(x=>x.file===f);
-const shortName=f.replace('mem-','').replace('.md','');
-makeNode3D('m_'+f,shortName,p,8,mcm[f]||'#60a5fa',mc?mc.content.substring(0,800):'');
+makeNode3D('m_'+f,MEM_LABELS[f]||f.replace('mem-','').replace('.md',''),p,8,mcm[f]||'#60a5fa',mc?mc.content.substring(0,800):'');
 const memNode=nodeDataMap['c_MEMORY.md'];
 if(memNode)addEdge3D(memNode.mesh.position,p,mcm[f]||'#60a5fa');
 });
@@ -502,7 +506,7 @@ const sc=s.scripts||[];
 sc.forEach((f,i)=>{
 const a=(i/sc.length)*Math.PI*2+Math.PI/4;
 const p=new THREE.Vector3(Math.cos(a)*200,(Math.sin(a)*80)-60,(Math.cos(a*1.5))*80);
-makeNode3D('s_'+f,f.replace('.py',''),p,7,'#22c55e',f);
+makeNode3D('s_'+f,SCR_LABELS[f]||f.replace('.py',''),p,7,'#22c55e',f);
 const toolNode=nodeDataMap['c_TOOLS.md'];
 if(toolNode)addEdge3D(toolNode.mesh.position,p,'#22c55e');
 });
@@ -575,7 +579,11 @@ const hasContent=d.content&&d.content.trim()&&d.content!=='（無預覽資料）
 let html='';
 if(hasContent){
 html+='<div id="sb-content" style="margin-bottom:14px">'+E(d.content)+'</div>';
+// 只有英文內容多時才顯示翻譯按鈕
+const engRatio=(d.content.match(/[a-zA-Z]/g)||[]).length/d.content.length;
+if(engRatio>0.3){
 html+='<div id="sb-tr-btn" onclick="doTranslate()" style="display:inline-block;padding:6px 16px;background:rgba(251,191,36,.12);color:#fbbf24;border:1px solid rgba(251,191,36,.3);border-radius:5px;font-size:12px;cursor:pointer;user-select:none">翻譯成中文</div>';
+}
 }else{
 html='<div style="color:#484f58">（無內容）</div>';
 }
