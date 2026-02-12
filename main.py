@@ -1,150 +1,189 @@
 import os
+import json
 import requests
 from fastapi import FastAPI
-from fastapi.responses import HTMLResponse
+from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
 app = FastAPI()
+# 修正：支援讀取 bg.png
 app.mount("/static", StaticFiles(directory="."), name="static")
 
-# 從 Zeabur 環境變數抓取鑰匙
-Z_KEY = os.getenv("ZEABUR_KEY", "")
-L_ID = os.getenv("LOBSTER_ID", "")
-G_KEY = os.getenv("GEMINI_KEY", "")
-S_PROMPT = os.getenv("SYSTEM_PROMPT", "你是一個傲嬌的監控秘書。")
+# 從 Zeabur 環境變數抓取 (這部分在伺服器端執行)
+def get_sys_config():
+    return {
+        "zk": os.getenv("ZEABUR_KEY", ""),
+        "zi": os.getenv("LOBSTER_ID", ""),
+        "gk": os.getenv("GEMINI_KEY", ""),
+        "sp": os.getenv("SYSTEM_PROMPT", "你是一個傲嬌的監控秘書。")
+    }
 
-HTML_CODE = f"""
+HTML_CODE = """
 <!DOCTYPE html>
-<html>
+<html lang="zh-TW">
 <head>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Yeli Room</title>
     <link href="https://fonts.googleapis.com/css2?family=DotGothic16&display=swap" rel="stylesheet">
     <style>
-        :root {{ --bg: #0a0e14; --panel: rgba(16, 22, 34, 0.9); --accent: #fbbf24; --text: #e2e8f0; --border: #303b58; }}
-        * {{ margin: 0; padding: 0; box-sizing: border-box; }}
-        body {{ background: var(--bg); font-family: 'DotGothic16', sans-serif; color: var(--text); height: 100vh; overflow: hidden; display: flex; flex-direction: column; }}
-        .header {{ height: 45px; background: #111827; border-bottom: 1px solid var(--border); display: flex; justify-content: space-between; align-items: center; padding: 0 20px; }}
-        .main-stage {{ flex: 1; display: flex; position: relative; }}
-        .room-view {{ flex: 1; background: url('/static/bg.jpg') no-repeat center center; background-size: contain; image-rendering: pixelated; position: relative; }}
-        .log-window {{ position: absolute; bottom: 20px; left: 20px; width: 420px; height: 320px; background: var(--panel); border: 1px solid var(--border); padding: 15px; backdrop-filter: blur(10px); }}
-        .log-list {{ height: 100%; overflow-y: auto; font-size: 13px; line-height: 1.6; }}
-        .side-panel {{ width: 320px; background: var(--panel); border-left: 1px solid var(--border); padding: 20px; display: flex; flex-direction: column; }}
-        .skill-card {{ border: 1px solid var(--accent); padding: 12px; margin-bottom: 12px; background: rgba(0,0,0,0.6); position: relative; }}
-        .skill-card::before {{ content: "ACTIVE"; position: absolute; top: -8px; right: 5px; background: var(--accent); color: #000; font-size: 9px; padding: 0 4px; }}
-        .loading {{ color: #555; font-size: 12px; text-align: center; margin-top: 20px; }}
+        :root { --bg: #0a0e14; --panel: rgba(16, 22, 34, 0.95); --accent: #fbbf24; --text: #e2e8f0; --border: #303b58; }
+        * { margin: 0; padding: 0; box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body { background: var(--bg); font-family: 'DotGothic16', sans-serif; color: var(--text); height: 100vh; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* --- 頂部導航 (分頁標籤) --- */
+        .tab-bar { 
+            height: 50px; background: #111827; border-bottom: 2px solid var(--border); 
+            display: flex; justify-content: space-around; align-items: center; z-index: 100;
+        }
+        .tab { 
+            flex: 1; text-align: center; line-height: 50px; font-size: 14px; color: #666; cursor: pointer; border-bottom: 2px solid transparent; 
+        }
+        .tab.active { color: var(--accent); border-bottom: 2px solid var(--accent); background: rgba(251, 191, 36, 0.05); }
+
+        /* --- 內容區域 --- */
+        .content-wrapper { flex: 1; position: relative; }
+        .page { display: none; width: 100%; height: 100%; position: absolute; top: 0; left: 0; }
+        .page.active { display: block; }
+
+        /* 頁面 1: 辦公室 (主畫面) */
+        .room-view { 
+            background: url('/static/bg.png') no-repeat center center; /* 修正為 png */
+            background-size: contain; image-rendering: pixelated; height: 100%; position: relative;
+        }
+        .mini-log { 
+            position: absolute; bottom: 20px; left: 5%; width: 90%; max-height: 120px;
+            background: var(--panel); border: 1px solid var(--border); padding: 10px; font-size: 12px; overflow-y: auto;
+        }
+
+        /* 頁面 2: 技能列表 */
+        .skills-page { background: var(--bg); padding: 20px; overflow-y: auto; }
+        .skill-card { 
+            border: 1px solid var(--accent); padding: 15px; margin-bottom: 15px; background: var(--panel);
+            box-shadow: 4px 4px 0px var(--border);
+        }
+        .skill-name { color: var(--accent); font-size: 16px; margin-bottom: 5px; }
+        .skill-desc { font-size: 12px; color: #94a3b8; line-height: 1.4; }
+
+        .loading-overlay { 
+            position: fixed; top:0; left:0; width:100%; height:100%; background:var(--bg); 
+            z-index: 999; display: flex; justify-content: center; align-items: center; 
+        }
+
+        @keyframes blink { 50% { opacity: 0.3; } }
+        .status-dot { width: 8px; height: 8px; background: #34d399; border-radius: 50%; display: inline-block; margin-right: 5px; animation: blink 1s infinite; }
     </style>
 </head>
 <body>
-    <div class="header">
-        <div style="color:var(--accent); display:flex; align-items:center; gap:10px;">
-            <div style="width:10px; height:10px; background:#34d399; border-radius:50%;"></div>
-            LOBSTER OS | 全自動 AI 監控中
-        </div>
-        <div id="cost-info" style="color:#fb7185; font-size:12px;">每日 Token 消耗預警...</div>
+
+    <div id="loader" class="loading-overlay">系統同步中...</div>
+
+    <div class="tab-bar">
+        <div class="tab active" onclick="showPage('office', this)">主辦公室</div>
+        <div class="tab" onclick="showPage('skills', this)">技能分析</div>
     </div>
-    <div class="main-stage">
-        <div class="room-view">
-            <div class="log-window">
-                <div id="log-list" class="log-list">正在讀取夜璃運行日誌...</div>
+
+    <div class="content-wrapper">
+        <div id="page-office" class="page active">
+            <div class="room-view">
+                <div class="mini-log" id="mini-log">等待日誌同步...</div>
             </div>
         </div>
-        <div class="side-panel">
-            <h3 style="color:var(--accent); margin-bottom:15px; border-bottom: 1px solid var(--border); padding-bottom: 10px;">
-                🤖 動態技能分析
-            </h3>
-            <div id="skills-container">
-                <div class="loading">正在分析 Log 以提取技能...</div>
+
+        <div id="page-skills" class="page">
+            <div class="skills-page">
+                <h2 style="color:var(--accent); margin-bottom:20px;">AI 動態技能偵測</h2>
+                <div id="skills-list">
+                    <div style="color:#444;">正在從 Log 中提煉技能數據...</div>
+                </div>
             </div>
         </div>
     </div>
 
     <script>
-        const CONFIG = {{ zk: "{Z_KEY}", zi: "{L_ID}", gk: "{G_KEY}", sp: "{S_PROMPT}" }};
-        let lastFullLog = "";
+        let CONFIG = {};
 
-        window.onload = () => {{
-            if(CONFIG.zk && CONFIG.zi) {{
-                setInterval(sync, 8000); // 每8秒同步一次
-                sync();
-            }}
-        }};
+        // 1. 初始化：從後端安全取得環境變數
+        async function init() {
+            try {
+                const res = await fetch('/get_sys_config');
+                CONFIG = await res.json();
+                document.getElementById('loader').style.display = 'none';
+                
+                if (CONFIG.zk && CONFIG.zi) {
+                    setInterval(sync, 8000);
+                    sync();
+                } else {
+                    alert("請在 Zeabur 環境變數中設定 ZEABUR_KEY 與 LOBSTER_ID！");
+                }
+            } catch(e) { console.error("初始化失敗", e); }
+        }
 
-        async function sync() {{
-            try {{
-                // 1. 抓取最近的 Log (一次抓 20 條來分析)
-                const res = await fetch('/get_logs_batch', {{
+        // 2. 分頁切換
+        function showPage(pageId, tabEl) {
+            document.querySelectorAll('.page').forEach(p => p.classList.remove('active'));
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            document.getElementById('page-' + pageId).classList.add('active');
+            tabEl.classList.add('active');
+        }
+
+        // 3. 數據同步
+        async function sync() {
+            try {
+                const res = await fetch('/get_logs_internal', {
                     method: 'POST',
-                    headers: {{'Content-Type': 'application/json'}},
-                    body: JSON.stringify({{ key: CONFIG.zk, id: CONFIG.zi }})
-                }});
+                    headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ key: CONFIG.zk, id: CONFIG.zi })
+                });
                 const data = await res.json();
                 
-                if(data.logs && data.logs.length > 0) {{
-                    const latestContent = data.logs[0].content;
-                    const allLogsText = data.logs.map(l => l.content).join("\\n");
+                if (data.logs && data.logs.length > 0) {
+                    const latestLog = data.logs[0].content;
+                    updateMiniLog(latestLog);
                     
-                    // 2. 如果 Log 有更新，執行翻譯與技能分析
-                    if(latestContent !== lastFullLog) {{
-                        lastFullLog = latestContent;
-                        updateLogUI(latestContent);
-                        analyzeSkills(allLogsText);
-                    }}
-                }}
-            }} catch(e) {{}}
-        }}
+                    // 分析技能 (只在進入技能頁或 Log 變動時觸發)
+                    analyzeSkills(data.logs.map(l => l.content).join("\\n"));
+                }
+            } catch(e) {}
+        }
 
-        // 使用 Gemini 分析 Log 中的技能
-        async function analyzeSkills(logs) {{
-            if(!CONFIG.gk) return;
-            try {{
-                const prompt = `你是一個系統分析員。請根據以下的小龍蝦系統 Log，列出目前系統展現出的 3 個「核心技能」或「處理中任務」。
-                格式必須是 JSON 陣列：[ {{"name": "技能名", "desc": "簡短描述"}} ]。
-                請參考他最近正在處理的：Token 費用、thought_signature 報錯、記憶總結系統。
-                Log內容：\\n${{logs.substring(0, 1000)}}`;
-
-                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${{CONFIG.gk}}`, {{
-                    method: 'POST',
-                    body: JSON.stringify({{ contents: [{{ parts: [{{ text: prompt }}] }}] }})
-                }});
-                const result = await res.json();
-                const aiResponse = result.candidates[0].content.parts[0].text;
-                
-                // 提取 JSON 並渲染
-                const skills = JSON.parse(aiResponse.substring(aiResponse.indexOf('['), aiResponse.lastIndexOf(']') + 1));
-                renderSkills(skills);
-            }} catch(e) {{ console.error("技能分析失敗", e); }}
-        }}
-
-        function renderSkills(skills) {{
-            const container = document.getElementById('skills-container');
-            container.innerHTML = skills.map(s => `
-                <div class="skill-card">
-                    <div style="font-size:14px; color:#fff; font-weight:bold;">${{s.name}}</div>
-                    <div style="font-size:11px; color:#94a3b8; margin-top:5px;">${{s.desc}}</div>
-                </div>
-            `).join('');
-        }}
-
-        async function updateLogUI(text) {{
+        async function updateMiniLog(text) {
             let display = text;
-            if(CONFIG.gk && CONFIG.sp) {{
-                try {{
-                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${{CONFIG.gk}}`, {{
+            if (CONFIG.gk && CONFIG.sp) {
+                try {
+                    const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${CONFIG.gk}`, {
                         method: 'POST',
-                        body: JSON.stringify({{ contents: [{{ parts: [{{ text: CONFIG.sp + "\\\\n\\\\n翻譯Log: " + text }}] }}] }})
-                    }});
-                    const data = await res.json();
-                    display = data.candidates[0].content.parts[0].text;
-                }} catch(e) {{}}
-            }}
-            const list = document.getElementById('log-list');
-            const div = document.createElement('div');
-            div.className = "log-item";
-            div.innerHTML = `<span style="color:#fbbf24;">➜</span> ${{display}}`;
-            list.prepend(div);
-            if(list.children.length > 10) list.lastElementChild.remove();
-        }}
+                        body: JSON.stringify({ contents: [{ parts: [{ text: CONFIG.sp + "\\n\\n翻譯此 Log：" + text }] }] })
+                    });
+                    const d = await res.json();
+                    display = d.candidates[0].content.parts[0].text;
+                } catch(e) {}
+            }
+            document.getElementById('mini-log').innerHTML = `<span class="status-dot"></span> ➜ ${{display}}`;
+        }
+
+        async function analyzeSkills(logs) {
+            if (!CONFIG.gk) return;
+            try {
+                const prompt = `分析以下小龍蝦 AI 系統的日誌，提取出目前正在運作的 3 個主要技能或狀態。以 JSON 格式回傳：[{"name":"技能名","desc":"描述"}]。\\nLog內容：\\n${logs.substring(0, 1000)}`;
+                const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${CONFIG.gk}`, {
+                    method: 'POST',
+                    body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] })
+                });
+                const d = await res.json();
+                const aiText = d.candidates[0].content.parts[0].text;
+                const skills = JSON.parse(aiText.substring(aiText.indexOf('['), aiText.lastIndexOf(']') + 1));
+                
+                document.getElementById('skills-list').innerHTML = skills.map(s => `
+                    <div class="skill-card">
+                        <div class="skill-name">${s.name}</div>
+                        <div class="skill-desc">${s.desc}</div>
+                    </div>
+                `).join('');
+            } catch(e) {}
+        }
+
+        init();
     </script>
 </body>
 </html>
@@ -153,10 +192,15 @@ HTML_CODE = f"""
 @app.get("/", response_class=HTMLResponse)
 def home(): return HTML_CODE
 
-@app.post("/get_logs_batch")
-def get_logs_batch(info: dict):
-    # 改為一次抓取 20 條，方便 AI 分析當前狀態
+@app.get("/get_sys_config")
+def api_get_config():
+    # 這是關鍵：把環境變數傳給前端，前端才讀得到設定
+    return JSONResponse(content=get_sys_config())
+
+@app.post("/get_logs_internal")
+def get_logs_internal(info: dict):
+    # 這是代理路徑，幫前端去問 Zeabur 伺服器
     url = "https://gateway.zeabur.com/graphql"
     query = f'query {{ serviceRuntimeLogs(serviceID: "{info["id"]}", limit: 20) {{ content timestamp }} }}'
     res = requests.post(url, json={"query": query}, headers={"Authorization": f"Bearer {info['key']}"}).json()
-    return {"logs": res["data"]["serviceRuntimeLogs"]}
+    return JSONResponse(content=res["data"])
