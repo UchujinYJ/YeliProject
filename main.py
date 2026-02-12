@@ -291,18 +291,15 @@ if(rc.length>0)detectActivity(rc)}
 const ACTIVITIES={
 crypto:{
   frames:['/static/crypto_1.png','/static/crypto_2.png','/static/crypto_3.png','/static/crypto_4.png'],
-  // 對齊房間電腦桌（sprite 自帶桌椅螢幕）
-  left:'24.5%',top:'13%',width:'20%'
+  left:'24.8%',top:'15.6%',width:'15%'
 },
 study:{
   frames:['/static/study_1.png','/static/study_2.png','/static/study_3.png'],
-  // 對齊房間懶人沙發（sprite 自帶沙發）
-  left:'37%',top:'30%',width:'17%'
+  left:'38%',top:'28.1%',width:'14%'
 },
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
-  // 對齊房間畫架（sprite 自帶畫架凳子）
-  left:'53%',top:'33%',width:'14%'
+  left:'53.5%',top:'38.5%',width:'11%'
 }
 };
 let curActivity='idle',frameIdx=0,spriteTimer=null;
