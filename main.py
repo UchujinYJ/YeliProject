@@ -2,7 +2,7 @@ import os
 import json
 import time
 import requests
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.responses import HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 
@@ -10,17 +10,56 @@ app = FastAPI()
 app.mount("/static", StaticFiles(directory="."), name="static")
 
 # ============================
-# Gemini 翻譯快取
+# Gemini 翻譯
 # ============================
 translate_cache = {}
 last_translate_time = 0
-TRANSLATE_COOLDOWN = 60
+TRANSLATE_COOLDOWN = 30
 
 def get_sys_config():
     return {
         "has_zeabur": bool(os.getenv("ZEABUR_API_TOKEN", "")),
         "has_gemini": bool(os.getenv("GEMINI_KEY", ""))
     }
+
+def call_gemini(prompt, max_len=500):
+    global last_translate_time
+    gk = os.getenv("GEMINI_KEY", "")
+    if not gk:
+        return ""
+    now = time.time()
+    if now - last_translate_time < TRANSLATE_COOLDOWN:
+        return ""
+    try:
+        res = requests.post(
+            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gk}",
+            headers={"Content-Type": "application/json"},
+            json={"contents": [{"parts": [{"text": prompt}]}]},
+            timeout=15
+        )
+        data = res.json()
+        if "error" in data:
+            return ""
+        result = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+        last_translate_time = now
+        return result[:max_len] if result else ""
+    except:
+        return ""
+
+def translate_with_gemini(text):
+    global translate_cache
+    text_hash = hash(text[:200])
+    if text_hash in translate_cache:
+        return translate_cache[text_hash]
+    sp = os.getenv("SYSTEM_PROMPT", "你是一個傲嬌的監控秘書。")
+    result = call_gemini(f"{sp}\n\n用一句繁體中文白話翻譯這段 Log（不要超過 50 字）：\n{text[:300]}")
+    if result:
+        translate_cache[text_hash] = result
+        if len(translate_cache) > 100:
+            keys = list(translate_cache.keys())
+            for k in keys[:50]:
+                del translate_cache[k]
+    return result
 
 # ============================
 # Zeabur API
@@ -77,39 +116,6 @@ def fetch_runtime_logs():
     except Exception as e:
         return {"logs": [], "error": f"連線錯誤: {str(e)}"}
 
-def translate_with_gemini(text):
-    global last_translate_time, translate_cache
-    gk = os.getenv("GEMINI_KEY", "")
-    if not gk:
-        return ""
-    text_hash = hash(text[:200])
-    if text_hash in translate_cache:
-        return translate_cache[text_hash]
-    now = time.time()
-    if now - last_translate_time < TRANSLATE_COOLDOWN:
-        return ""
-    sp = os.getenv("SYSTEM_PROMPT", "你是一個傲嬌的監控秘書。")
-    try:
-        res = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gk}",
-            headers={"Content-Type": "application/json"},
-            json={"contents": [{"parts": [{"text": f"{sp}\n\n用一句繁體中文白話翻譯這段 Log（不要超過 50 字）：\n{text[:300]}"}]}]},
-            timeout=10
-        )
-        data = res.json()
-        if "error" in data:
-            return ""
-        result = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        translate_cache[text_hash] = result
-        last_translate_time = now
-        if len(translate_cache) > 50:
-            keys = list(translate_cache.keys())
-            for k in keys[:25]:
-                del translate_cache[k]
-        return result
-    except:
-        return ""
-
 def fetch_lobster_status():
     ws = "/home/node/.openclaw/workspace"
     result = {"core_files": [], "memory_files": [], "scripts": [], "skills": [],
@@ -162,11 +168,27 @@ def get_logs():
 @app.post("/get_status")
 def get_status(): return JSONResponse(content=fetch_lobster_status())
 
+@app.post("/translate")
+async def translate_content(request: Request):
+    """按需翻譯單一內容"""
+    body = await request.json()
+    text = body.get("text", "")
+    if not text:
+        return JSONResponse(content={"translated": ""})
+    cache_key = hash(text[:300])
+    if cache_key in translate_cache:
+        return JSONResponse(content={"translated": translate_cache[cache_key]})
+    prompt = f"將以下 AI Agent 的系統檔案內容翻譯成繁體中文。保留 Markdown 格式和結構。只輸出翻譯結果，不要加任何解釋：\n\n{text[:1500]}"
+    result = call_gemini(prompt, max_len=2000)
+    if result:
+        translate_cache[cache_key] = result
+    return JSONResponse(content={"translated": result})
+
 @app.get("/health")
 def health(): return {"status": "ok"}
 
 # ============================
-# 前端 HTML (raw string)
+# 前端 HTML
 # ============================
 HTML_CODE = r"""<!DOCTYPE html>
 <html lang="zh-TW">
@@ -175,6 +197,7 @@ HTML_CODE = r"""<!DOCTYPE html>
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
 <title>Yeli Room</title>
 <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet">
+<script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
 <style>
 :root{--bg:#080c12;--panel:rgba(12,18,30,.95);--accent:#fbbf24;--text:#c8d6e5;--border:#1e2a42;--green:#22c55e;--red:#ef4444;--blue:#60a5fa;--purple:#a78bfa;--cyan:#22d3ee;--orange:#fb923c;--pink:#f472b6}
 *{margin:0;padding:0;box-sizing:border-box}
@@ -192,6 +215,7 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 .room-view{background:url('/static/bg.png') no-repeat center center;background-size:contain;background-color:#080c12;image-rendering:pixelated;width:100%;height:100%;position:relative}
 .mlog{position:absolute;bottom:16px;left:3%;width:94%;max-height:160px;background:rgba(8,12,18,.92);border:1px solid #1e2a42;padding:10px 12px;font-size:11px;overflow-y:auto;border-radius:6px;backdrop-filter:blur(8px);font-family:'DotGothic16',monospace}
 .le{margin-bottom:3px;line-height:1.5}.lt{color:var(--accent);margin-right:8px;opacity:.7}.lm{color:#8b949e}.ltr{color:var(--cyan);font-style:italic;display:block;margin-left:70px;margin-top:1px;font-size:11px}
+/* RPG */
 .rpg{width:100%;height:100%;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 0%,rgba(251,191,36,.03) 0%,transparent 60%),var(--bg);overflow:hidden}
 .rpg-h{padding:16px 20px 0;flex-shrink:0}.rpg-t{font-family:'DotGothic16',monospace;font-size:18px;color:var(--accent);text-shadow:0 0 20px rgba(251,191,36,.3)}
 .rpg-sub{font-size:11px;color:#484f58;margin-top:4px}
@@ -208,17 +232,19 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 .sinf{flex:1;min-width:0}.snam{font-size:12px;font-weight:700;margin-bottom:2px}
 .sdsc{font-size:10px;color:#484f58;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
 .slv{font-family:'DotGothic16',monospace;font-size:10px;color:#484f58;flex-shrink:0}.slv span{color:var(--accent)}
-.sdet{display:none;margin:0 0 10px 58px;padding:10px 14px;background:rgba(255,255,255,.02);border-radius:6px;border-left:2px solid var(--accent);font-size:11px;color:#8b949e;white-space:pre-wrap;max-height:200px;overflow-y:auto;line-height:1.6}
-.sdet.open{display:block}.conn{width:24px;height:20px;margin-left:18px;border-left:1px dashed #1e2a42}
+.sdet{display:none;margin:0 0 10px 58px;padding:10px 14px;background:rgba(255,255,255,.02);border-radius:6px;border-left:2px solid var(--accent);font-size:11px;color:#8b949e;white-space:pre-wrap;max-height:240px;overflow-y:auto;line-height:1.6}
+.sdet.open{display:block}
+.conn{width:24px;height:20px;margin-left:18px;border-left:1px dashed #1e2a42}
+/* MEMORY 3D */
 .mp{width:100%;height:100%;display:flex;background:var(--bg);overflow:hidden}
-.mcw{flex:1;position:relative}.mcw canvas{width:100%;height:100%}
-.msb{width:280px;background:#0d1117;border-left:1px solid #21262d;overflow-y:auto;flex-shrink:0;display:none}.msb.open{display:block}
+.mcw{flex:1;position:relative}
+.msb{width:300px;background:#0d1117;border-left:1px solid #21262d;overflow-y:auto;flex-shrink:0;display:none}.msb.open{display:block}
 .msbh{padding:14px 16px;border-bottom:1px solid #21262d;display:flex;justify-content:space-between;align-items:center}
 .msbt{font-size:14px;font-weight:700;color:var(--accent)}.msbc{cursor:pointer;color:#484f58;font-size:18px}
 .msbb{padding:12px 16px;font-size:11px;color:#8b949e;white-space:pre-wrap;line-height:1.7}
-.mleg{position:absolute;bottom:12px;left:12px;background:rgba(13,17,23,.9);border:1px solid #21262d;border-radius:6px;padding:8px 12px;font-size:10px}
+.mleg{position:absolute;bottom:12px;left:12px;background:rgba(13,17,23,.9);border:1px solid #21262d;border-radius:6px;padding:8px 12px;font-size:10px;z-index:10}
 .mli{display:flex;align-items:center;gap:6px;margin-bottom:3px}.mld{width:8px;height:8px;border-radius:50%}
-.mhint{position:absolute;top:12px;left:50%;transform:translateX(-50%);color:#484f58;font-size:11px;pointer-events:none;font-family:'DotGothic16',monospace}
+.mhint{position:absolute;top:12px;left:50%;transform:translateX(-50%);color:#484f58;font-size:11px;pointer-events:none;font-family:'DotGothic16',monospace;z-index:10}
 .loading{color:#484f58;text-align:center;padding:40px;font-family:'DotGothic16',monospace}
 .loading::after{content:'';animation:dots 1.5s infinite}@keyframes dots{0%{content:'.'}33%{content:'..'}66%{content:'...'}}
 ::-webkit-scrollbar{width:4px}::-webkit-scrollbar-track{background:transparent}::-webkit-scrollbar-thumb{background:#1e2a42;border-radius:2px}
@@ -234,10 +260,10 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 <div class="content">
 <div id="p-office" class="page active" style="display:block"><div class="room-view"><div class="mlog" id="mlog">初始化連線...</div></div></div>
 <div id="p-skills" class="page"><div class="rpg" id="rpg"><div class="loading">載入中</div></div></div>
-<div id="p-memory" class="page"><div class="mp"><div class="mcw"><canvas id="mc"></canvas><div class="mhint" id="mhint">點擊節點查看記憶詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">✕</span></div><div class="msbb" id="msbb"></div></div></div></div>
+<div id="p-memory" class="page"><div class="mp"><div class="mcw" id="mcw"><div class="mhint" id="mhint">拖曳旋轉 · 滾輪縮放 · 點擊節點查看詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">✕</span></div><div class="msbb" id="msbb"></div></div></div></div>
 </div>
 <script>
-let CFG={},LL=[],SD=null,MN=[],ME=[],SN=null,cX=0,cY=0,zm=1,dr=false,ds={x:0,y:0},cs={x:0,y:0};
+let CFG={},LL=[],SD=null;
 
 function sw(p,el){
 document.querySelectorAll('.page').forEach(x=>{x.classList.remove('active');x.style.display='none'});
@@ -248,24 +274,15 @@ if(p==='skills')lsp();if(p==='memory')lmp();
 }
 function ss(ok,t){document.getElementById('sdot').className='sdot '+(ok?'ok':'err');document.getElementById('stxt').innerText=t;if(ok)document.getElementById('lupd').innerText=new Date().toLocaleTimeString('zh-TW',{hour12:false})}
 
-async function init(){
-const r=await fetch('/get_sys_config');CFG=await r.json();
-if(CFG.has_zeabur){ss(true,'已連線');sync();setInterval(sync,30000)}
-else{ss(false,'未設定');document.getElementById('mlog').innerText="❌ 缺少環境變數"}
-}
+async function init(){const r=await fetch('/get_sys_config');CFG=await r.json();if(CFG.has_zeabur){ss(true,'已連線');sync();setInterval(sync,30000)}else{ss(false,'未設定');document.getElementById('mlog').innerText="❌ 缺少環境變數"}}
 
-async function sync(){
-try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();
-if(d.logs&&d.logs.length>0){LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}
-else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText="❌ "+d.error}
-else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="🦞 安靜中..."}
-}catch(e){ss(false,'連線失敗')}}
+async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText="❌ "+d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="🦞 安靜中..."}}catch(e){ss(false,'連線失敗')}}
 
 function rl(d){const el=document.getElementById('mlog');const rc=d.logs.slice(-10);const tr=d.translated||'';
 el.innerHTML=rc.map((l,i)=>{const t=l.timestamp?new Date(l.timestamp).toLocaleTimeString('zh-TW',{hour12:false}):'--:--:--';const la=i===rc.length-1;
 return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">🦞 '+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight}
 
-// ========== SKILLS PAGE ==========
+// ========== SKILLS ==========
 async function lsp(){
 const pg=document.getElementById('rpg');
 if(!SD){pg.innerHTML='<div class="loading">讀取小龍蝦資料中</div>';const r=await fetch('/get_status',{method:'POST'});SD=await r.json()}
@@ -284,15 +301,12 @@ function sC(ico,col,name,files,type,s){
 if(type==='skill'&&!files.length)return'<div class="scat"><div class="cath"><div class="catI" style="background:rgba(168,139,250,.1)">'+ico+'</div><div class="catN" style="color:'+col+'">'+name+'</div><div class="catC">0</div></div><div class="sn" style="opacity:.4;cursor:default"><div class="sorb" style="background:rgba(255,255,255,.03)">🔒</div><div class="sinf"><div class="snam" style="color:#484f58">尚未安裝技能</div><div class="sdsc">Skills 資料夾目前為空</div></div></div></div>';
 let h='<div class="scat"><div class="cath"><div class="catI" style="background:'+col+'15">'+ico+'</div><div class="catN" style="color:'+col+'">'+name+'</div><div class="catC">'+files.length+'</div></div>';
 files.forEach((f,i)=>{
-const det=gD(f,type,s),lv=gL(f,type),oc=gOC(type),fi=gFI(f,type);
+const det=gD(f,type,s),lv=gL(f,type),oc=gOC(type),fi=gFI(f,type),uid='det_'+type+'_'+i;
 h+='<div class="sn"><div class="sorb" style="background:'+oc+'">'+fi+'</div><div class="sinf"><div class="snam">'+E(f)+'</div><div class="sdsc">'+E(gFD(f,type))+'</div></div><div class="slv">Lv.<span>'+lv+'</span></div></div>';
-h+='<div class="sdet">'+E(det)+'</div>';
+h+='<div class="sdet" id="'+uid+'">'+E(det)+'</div>';
 if(i<files.length-1)h+='<div class="conn"></div>'});
 return h+'</div>'}
-function gD(f,t,s){
-if(t==='core'){if(f==='MEMORY.md'&&s.memory_index)return s.memory_index.substring(0,800);if(f==='IDENTITY.md'&&s.identity)return s.identity;if(f==='SOUL.md'&&s.soul)return s.soul.substring(0,800)}
-if(t==='memory'){const m=(s.mem_summaries||[]).find(x=>x.file===f);if(m)return m.content.substring(0,800)}
-return'點擊展開（無預覽資料）'}
+function gD(f,t,s){if(t==='core'){if(f==='MEMORY.md'&&s.memory_index)return s.memory_index.substring(0,800);if(f==='IDENTITY.md'&&s.identity)return s.identity;if(f==='SOUL.md'&&s.soul)return s.soul.substring(0,800)}if(t==='memory'){const m=(s.mem_summaries||[]).find(x=>x.file===f);if(m)return m.content.substring(0,800)}return'（無預覽資料）'}
 function gL(f,t){if(t==='core')return{'SOUL.md':5,'AGENTS.md':4,'IDENTITY.md':3,'MEMORY.md':5,'USER.md':2,'TOOLS.md':3,'BOOTSTRAP.md':2,'HEARTBEAT.md':1}[f]||1;if(t==='memory')return 3;if(t==='script')return 2;return 1}
 function gOC(t){return{core:'rgba(251,191,36,.15)',memory:'rgba(96,165,250,.15)',script:'rgba(34,197,94,.15)',skill:'rgba(167,139,250,.15)'}[t]}
 function gFI(f,t){if(t==='core')return{'SOUL.md':'🔥','AGENTS.md':'🤖','IDENTITY.md':'🦞','MEMORY.md':'📋','USER.md':'👤','TOOLS.md':'🔧','BOOTSTRAP.md':'🚀','HEARTBEAT.md':'💓'}[f]||'📄';if(t==='memory')return'💾';if(t==='script')return'⚙️';return'⚡'}
@@ -300,55 +314,174 @@ function gFD(f,t){if(t==='core')return{'SOUL.md':'核心人格與行為準則','
 if(t==='memory')return{'mem-crypto.md':'加密貨幣追蹤','mem-daily.md':'每日紀錄','mem-decisions.md':'決策記錄','mem-lessons.md':'學習經驗','mem-prefs.md':'偏好設定','mem-quest.md':'任務追蹤','mem-settings.md':'系統設定'}[f]||'記憶檔案';
 if(t==='script')return{'crypto_check.py':'加密貨幣價格監控','bounty_hunter.py':'賞金獵人系統','check_profit.py':'損益計算','jailbreak_pip.py':'套件安裝工具'}[f]||'Python 腳本';return''}
 
-// ========== MEMORY GRAPH ==========
+// ========== 3D MEMORY GRAPH ==========
+let scene,camera,renderer,nodeGroup,edgeGroup,raycaster,mouse,nodeDataMap={},controls;
+let isRotating=false,prevMouse={x:0,y:0},autoRotate=true;
+
 async function lmp(){
 if(!SD){const r=await fetch('/get_status',{method:'POST'});SD=await r.json()}
-if(SD.error)return;bg(SD);dg()}
-
-function bg(s){
-MN=[];ME=[];const cx=0,cy=0;
-MN.push({id:'core',label:'🦞 小龍蝦',x:cx,y:cy,r:30,color:'#fbbf24',type:'center',content:s.identity||'AI Agent'});
-const cf=s.core_files||[],ccm={'SOUL.md':'#ef4444','AGENTS.md':'#f97316','IDENTITY.md':'#fbbf24','MEMORY.md':'#22d3ee','USER.md':'#a78bfa','TOOLS.md':'#22c55e','BOOTSTRAP.md':'#6366f1','HEARTBEAT.md':'#f472b6'};
-cf.forEach((f,i)=>{const a=(i/cf.length)*Math.PI*2-Math.PI/2,d=120;MN.push({id:'c_'+f,label:f.replace('.md',''),x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,r:16,color:ccm[f]||'#60a5fa',type:'core',content:gD(f,'core',s)});ME.push({from:'core',to:'c_'+f})});
-const mf=s.memory_files||[],mcm={'mem-crypto.md':'#fb923c','mem-daily.md':'#60a5fa','mem-decisions.md':'#a78bfa','mem-lessons.md':'#22c55e','mem-prefs.md':'#f472b6','mem-quest.md':'#fbbf24','mem-settings.md':'#6366f1'};
-mf.forEach((f,i)=>{const a=(i/mf.length)*Math.PI*2+Math.PI/6,d=220;const mc=(s.mem_summaries||[]).find(x=>x.file===f);MN.push({id:'m_'+f,label:f.replace('mem-','').replace('.md',''),x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,r:13,color:mcm[f]||'#60a5fa',type:'memory',content:mc?mc.content.substring(0,800):''});ME.push({from:'c_MEMORY.md',to:'m_'+f})});
-const sc=s.scripts||[];
-sc.forEach((f,i)=>{const a=(i/sc.length)*Math.PI*2+Math.PI/3,d=300;MN.push({id:'s_'+f,label:f.replace('.py',''),x:cx+Math.cos(a)*d,y:cy+Math.sin(a)*d,r:11,color:'#22c55e',type:'script',content:f});ME.push({from:'c_TOOLS.md',to:'s_'+f})});
+if(SD.error)return;
+const wrap=document.getElementById('mcw');
+// 避免重複初始化
+if(renderer){scene.clear();init3D(SD);return}
+init3D(SD);
 document.getElementById('mleg').innerHTML=[{c:'#fbbf24',l:'中心'},{c:'#ef4444',l:'核心'},{c:'#60a5fa',l:'記憶'},{c:'#22c55e',l:'腳本'}].map(x=>'<div class="mli"><div class="mld" style="background:'+x.c+'"></div>'+x.l+'</div>').join('')}
 
-function dg(){
-const cv=document.getElementById('mc'),wp=cv.parentElement;
-cv.width=wp.clientWidth*devicePixelRatio;cv.height=wp.clientHeight*devicePixelRatio;
-cv.style.width=wp.clientWidth+'px';cv.style.height=wp.clientHeight+'px';
-const c=cv.getContext('2d');c.setTransform(devicePixelRatio,0,0,devicePixelRatio,0,0);
-const W=wp.clientWidth,H=wp.clientHeight,ox=W/2+cX,oy=H/2+cY;
-c.clearRect(0,0,W,H);
-ME.forEach(e=>{const a=MN.find(n=>n.id===e.from),b=MN.find(n=>n.id===e.to);if(!a||!b)return;c.beginPath();c.moveTo(ox+a.x*zm,oy+a.y*zm);c.lineTo(ox+b.x*zm,oy+b.y*zm);c.strokeStyle='rgba(30,42,66,.6)';c.lineWidth=1;c.stroke()});
-MN.forEach(n=>{const nx=ox+n.x*zm,ny=oy+n.y*zm,nr=n.r*zm;
-const g=c.createRadialGradient(nx,ny,nr*.3,nx,ny,nr*2);g.addColorStop(0,n.color+'30');g.addColorStop(1,'transparent');c.fillStyle=g;c.beginPath();c.arc(nx,ny,nr*2,0,Math.PI*2);c.fill();
-c.beginPath();c.arc(nx,ny,nr,0,Math.PI*2);c.fillStyle=n===SN?n.color:n.color+'40';c.fill();c.strokeStyle=n===SN?'#fff':n.color+'80';c.lineWidth=n===SN?2:1;c.stroke();
-c.fillStyle='#c8d6e5';c.font=Math.max(9,11*zm)+'px "Noto Sans TC",sans-serif';c.textAlign='center';c.fillText(n.label,nx,ny+nr+14*zm)})}
+function init3D(s){
+const wrap=document.getElementById('mcw');
+const W=wrap.clientWidth,H=wrap.clientHeight;
 
-function sce(){
-const cv=document.getElementById('mc');
-cv.addEventListener('mousedown',e=>{dr=true;ds={x:e.clientX,y:e.clientY};cs={x:cX,y:cY}});
-cv.addEventListener('mousemove',e=>{if(!dr)return;cX=cs.x+(e.clientX-ds.x);cY=cs.y+(e.clientY-ds.y);dg()});
-cv.addEventListener('mouseup',()=>dr=false);cv.addEventListener('mouseleave',()=>dr=false);
-cv.addEventListener('wheel',e=>{e.preventDefault();zm*=e.deltaY>0?.9:1.1;zm=Math.max(.3,Math.min(3,zm));dg()},{passive:false});
-cv.addEventListener('click',e=>{const r=cv.getBoundingClientRect(),mx=e.clientX-r.left,my=e.clientY-r.top,W=r.width,H=r.height,ox=W/2+cX,oy=H/2+cY;let found=null;
-MN.forEach(n=>{const nx=ox+n.x*zm,ny=oy+n.y*zm,nr=n.r*zm;if(Math.sqrt((mx-nx)**2+(my-ny)**2)<nr+5)found=n});
-if(found){SN=found;document.getElementById('msbt').innerText=found.label;document.getElementById('msbb').innerText=found.content||'（無內容）';document.getElementById('msb').classList.add('open');document.getElementById('mhint').style.display='none'}
-else{SN=null;document.getElementById('msb').classList.remove('open')}dg()});
-let lt=null;
-cv.addEventListener('touchstart',e=>{if(e.touches.length===1){dr=true;ds={x:e.touches[0].clientX,y:e.touches[0].clientY};cs={x:cX,y:cY}}});
-cv.addEventListener('touchmove',e=>{e.preventDefault();if(dr&&e.touches.length===1){cX=cs.x+(e.touches[0].clientX-ds.x);cY=cs.y+(e.touches[0].clientY-ds.y);dg()}},{passive:false});
-cv.addEventListener('touchend',e=>{dr=false});
-window.addEventListener('resize',()=>{if(MN.length)dg()})}
+scene=new THREE.Scene();
+camera=new THREE.PerspectiveCamera(60,W/H,1,2000);
+camera.position.set(0,0,400);
 
-function csb(){document.getElementById('msb').classList.remove('open');SN=null;dg()}
+renderer=new THREE.WebGLRenderer({antialias:true,alpha:true});
+renderer.setSize(W,H);renderer.setPixelRatio(devicePixelRatio);
+renderer.setClearColor(0x080c12,1);
+wrap.insertBefore(renderer.domElement,wrap.firstChild);
+
+// Lights
+scene.add(new THREE.AmbientLight(0x404050,0.6));
+const pl=new THREE.PointLight(0xfbbf24,1,600);pl.position.set(0,0,200);scene.add(pl);
+
+raycaster=new THREE.Raycaster();mouse=new THREE.Vector2();
+nodeGroup=new THREE.Group();edgeGroup=new THREE.Group();
+scene.add(edgeGroup);scene.add(nodeGroup);
+
+buildNodes3D(s);
+setupInteraction3D(wrap);
+animate3D();
+window.addEventListener('resize',()=>{
+const w2=wrap.clientWidth,h2=wrap.clientHeight;
+camera.aspect=w2/h2;camera.updateProjectionMatrix();renderer.setSize(w2,h2)});
+}
+
+function makeNode3D(id,label,pos,radius,color,content){
+const geo=new THREE.SphereGeometry(radius,24,24);
+const mat=new THREE.MeshPhongMaterial({color:new THREE.Color(color),emissive:new THREE.Color(color),emissiveIntensity:0.3,transparent:true,opacity:0.85});
+const mesh=new THREE.Mesh(geo,mat);
+mesh.position.copy(pos);
+mesh.userData={id,label,content,color};
+nodeDataMap[id]={mesh,label,content,color};
+nodeGroup.add(mesh);
+
+// 光暈
+const glowGeo=new THREE.SphereGeometry(radius*1.6,16,16);
+const glowMat=new THREE.MeshBasicMaterial({color:new THREE.Color(color),transparent:true,opacity:0.08});
+const glow=new THREE.Mesh(glowGeo,glowMat);
+glow.position.copy(pos);
+nodeGroup.add(glow);
+
+return mesh;
+}
+
+function buildNodes3D(s){
+// Center
+makeNode3D('core','🦞 小龍蝦',new THREE.Vector3(0,0,0),20,'#fbbf24',s.identity||'AI Agent');
+
+// Core ring (horizontal circle)
+const cf=s.core_files||[];
+const ccm={'SOUL.md':'#ef4444','AGENTS.md':'#f97316','IDENTITY.md':'#fbbf24','MEMORY.md':'#22d3ee','USER.md':'#a78bfa','TOOLS.md':'#22c55e','BOOTSTRAP.md':'#6366f1','HEARTBEAT.md':'#f472b6'};
+cf.forEach((f,i)=>{
+const a=(i/cf.length)*Math.PI*2;
+const p=new THREE.Vector3(Math.cos(a)*90,Math.sin(a)*90,(Math.random()-0.5)*30);
+const n=makeNode3D('c_'+f,f.replace('.md',''),p,10,ccm[f]||'#60a5fa',gD(f,'core',s));
+addEdge3D(new THREE.Vector3(0,0,0),p,ccm[f]||'#60a5fa');
+});
+
+// Memory ring (tilted)
+const mf=s.memory_files||[];
+const mcm={'mem-crypto.md':'#fb923c','mem-daily.md':'#60a5fa','mem-decisions.md':'#a78bfa','mem-lessons.md':'#22c55e','mem-prefs.md':'#f472b6','mem-quest.md':'#fbbf24','mem-settings.md':'#6366f1'};
+mf.forEach((f,i)=>{
+const a=(i/mf.length)*Math.PI*2;
+const p=new THREE.Vector3(Math.cos(a)*160,Math.sin(a)*100+40,(Math.sin(a*2))*60);
+const mc=(s.mem_summaries||[]).find(x=>x.file===f);
+makeNode3D('m_'+f,f.replace('mem-','').replace('.md',''),p,8,mcm[f]||'#60a5fa',mc?mc.content.substring(0,800):'');
+// Connect to MEMORY.md
+const memNode=nodeDataMap['c_MEMORY.md'];
+if(memNode)addEdge3D(memNode.mesh.position,p,mcm[f]||'#60a5fa');
+});
+
+// Scripts (outer)
+const sc=s.scripts||[];
+sc.forEach((f,i)=>{
+const a=(i/sc.length)*Math.PI*2+Math.PI/4;
+const p=new THREE.Vector3(Math.cos(a)*200,(Math.sin(a)*80)-60,(Math.cos(a*1.5))*80);
+makeNode3D('s_'+f,f.replace('.py',''),p,7,'#22c55e',f);
+const toolNode=nodeDataMap['c_TOOLS.md'];
+if(toolNode)addEdge3D(toolNode.mesh.position,p,'#22c55e');
+});
+}
+
+function addEdge3D(from,to,color){
+const pts=[from.clone(),to.clone()];
+const geo=new THREE.BufferGeometry().setFromPoints(pts);
+const mat=new THREE.LineBasicMaterial({color:new THREE.Color(color),transparent:true,opacity:0.2});
+edgeGroup.add(new THREE.Line(geo,mat));
+}
+
+function setupInteraction3D(wrap){
+const cv=renderer.domElement;
+cv.addEventListener('mousedown',e=>{isRotating=true;prevMouse={x:e.clientX,y:e.clientY};autoRotate=false});
+cv.addEventListener('mousemove',e=>{if(!isRotating)return;const dx=e.clientX-prevMouse.x,dy=e.clientY-prevMouse.y;
+nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
+prevMouse={x:e.clientX,y:e.clientY}});
+cv.addEventListener('mouseup',()=>isRotating=false);
+cv.addEventListener('mouseleave',()=>isRotating=false);
+cv.addEventListener('wheel',e=>{e.preventDefault();camera.position.z+=e.deltaY*0.5;camera.position.z=Math.max(100,Math.min(800,camera.position.z))},{passive:false});
+
+cv.addEventListener('click',e=>{
+const rect=cv.getBoundingClientRect();
+mouse.x=((e.clientX-rect.left)/rect.width)*2-1;
+mouse.y=-((e.clientY-rect.top)/rect.height)*2+1;
+raycaster.setFromCamera(mouse,camera);
+const hits=raycaster.intersectObjects(nodeGroup.children);
+const hit=hits.find(h=>h.object.userData&&h.object.userData.id);
+if(hit){
+const d=hit.object.userData;
+document.getElementById('msbt').innerText=d.label;
+const body=document.getElementById('msbb');
+body.innerHTML='<div class="det-raw">'+E(d.content||'（無內容）')+'</div>';
+document.getElementById('msb').classList.add('open');
+document.getElementById('mhint').style.display='none';
+nodeGroup.children.forEach(c=>{if(c.material&&c.material.emissiveIntensity!==undefined)c.material.emissiveIntensity=c===hit.object?0.8:0.3});
+// 自動翻譯
+if(CFG.has_gemini&&d.content){autoTranslateSb(d.content)}
+}});
+
+// Touch
+let touchStart=null;
+cv.addEventListener('touchstart',e=>{if(e.touches.length===1){isRotating=true;prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY};autoRotate=false;touchStart=Date.now()}});
+cv.addEventListener('touchmove',e=>{e.preventDefault();if(isRotating&&e.touches.length===1){const dx=e.touches[0].clientX-prevMouse.x,dy=e.touches[0].clientY-prevMouse.y;
+nodeGroup.rotation.y+=dx*0.005;nodeGroup.rotation.x+=dy*0.005;edgeGroup.rotation.y+=dx*0.005;edgeGroup.rotation.x+=dy*0.005;
+prevMouse={x:e.touches[0].clientX,y:e.touches[0].clientY}}},{passive:false});
+cv.addEventListener('touchend',e=>{isRotating=false;
+if(touchStart&&Date.now()-touchStart<200&&e.changedTouches.length===1){const t=e.changedTouches[0];const fk={clientX:t.clientX,clientY:t.clientY};cv.dispatchEvent(new MouseEvent('click',fk))}});
+}
+
+let trCache={};
+async function autoTranslateSb(rawText){
+const body=document.getElementById('msbb');
+const key=rawText.substring(0,200);
+if(trCache[key]){body.innerHTML=E(trCache[key]);return}
+body.innerHTML='<div style="color:#484f58">⏳ 翻譯中...</div><div class="det-raw" style="margin-top:8px;opacity:.4;font-size:10px">'+E(rawText)+'</div>';
+try{const r=await fetch('/translate',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({text:rawText})});
+const d=await r.json();
+if(d.translated){trCache[key]=d.translated;body.innerHTML=E(d.translated)}
+else{body.innerHTML='<div class="det-raw">'+E(rawText)+'</div><div style="color:#484f58;margin-top:6px;font-size:10px">（翻譯額度冷卻中，顯示原文）</div>'}
+}catch(e){body.innerHTML='<div class="det-raw">'+E(rawText)+'</div><div style="color:var(--red);margin-top:6px;font-size:10px">翻譯失敗</div>'}}
+
+function animate3D(){
+requestAnimationFrame(animate3D);
+if(autoRotate){nodeGroup.rotation.y+=0.002;edgeGroup.rotation.y+=0.002}
+renderer.render(scene,camera);
+}
+
+function csb(){document.getElementById('msb').classList.remove('open');
+nodeGroup.children.forEach(c=>{if(c.material&&c.material.emissiveIntensity!==undefined)c.material.emissiveIntensity=0.3})}
 function E(t){const d=document.createElement('div');d.textContent=t;return d.innerHTML}
 
-sce();init();
+init();
 </script>
 </body>
 </html>"""
