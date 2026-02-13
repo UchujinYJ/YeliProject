@@ -159,7 +159,7 @@ def api_get_config(): return JSONResponse(content=get_sys_config())
 import re
 
 def is_meaningful_log(msg):
-    """過濾掉 JSON 碎片、空行、純符號等垃圾 log"""
+    """過濾掉 JSON 碎片、系統日誌、websocket 訊息等"""
     s = msg.strip()
     if not s:
         return False
@@ -171,6 +171,22 @@ def is_meaningful_log(msg):
         return False
     # 純數字或純 timestamp
     if re.match(r'^[\d\s:.\-T/Z]+$', s):
+        return False
+    # websocket / HTTP 系統日誌
+    sl = s.lower()
+    noise_patterns = [
+        '[ws]', 'webchat.connected', 'webchat.disconnected',
+        'res ✓', 'res ✗', 'node.list', 'device.pair',
+        'chat.history', 'proxy headers', 'trustedproxies',
+        'conn=', 'client-openclaw', 'remote=10.',
+        '"key":', '"value":', '"timestamp":',
+        'content-type', 'authorization',
+    ]
+    for p in noise_patterns:
+        if p in sl:
+            return False
+    # 純 JSON key-value 片段
+    if re.match(r'^"?\w+"?\s*:\s*', s):
         return False
     return True
 
@@ -285,7 +301,7 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 <div class="content">
 <div id="p-office" class="page active" style="display:block"><div class="room-view"><div class="room-inner" id="room-inner"><img class="room-bg" src="/static/bg.png" alt=""><img id="char-sprite" class="sprite" src="" alt="" style="display:none"></div><div class="mlog" id="mlog">初始化連線...</div></div></div>
 <div id="p-skills" class="page"><div class="rpg" id="rpg"><div class="loading">載入中</div></div></div>
-<div id="p-memory" class="page"><div class="mp"><div class="mcw" id="mcw"><div id="labels-wrap" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:1"></div><div class="mhint" id="mhint">拖曳旋轉 / 滾輪縮放 / 點擊節點查看詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">x</span></div><div class="msbb" id="msbb"></div></div></div></div>
+<div id="p-memory" class="page"><div class="mp"><div class="mcw" id="mcw"><div id="labels-wrap" style="position:absolute;top:0;left:0;width:100%;height:100%;pointer-events:none;overflow:hidden;z-index:3"></div><div class="mhint" id="mhint">拖曳旋轉 / 滾輪縮放 / 點擊節點查看詳情</div><div class="mleg" id="mleg"></div></div><div class="msb" id="msb"><div class="msbh"><span class="msbt" id="msbt">--</span><span class="msbc" onclick="csb()">x</span></div><div class="msbb" id="msbb"></div></div></div></div>
 </div>
 <script>
 let CFG={},LL=[],SD=null;
@@ -313,15 +329,15 @@ if(rc.length>0)detectActivity(rc)}
 const ACTIVITIES={
 crypto:{
   frames:['/static/crypto_1.png','/static/crypto_2.png','/static/crypto_3.png','/static/crypto_4.png'],
-  left:'24.8%',top:'15.6%',width:'15%'
+  left:'24.8%',top:'15.6%',width:'18%'
 },
 study:{
   frames:['/static/study_1.png','/static/study_2.png','/static/study_3.png'],
-  left:'40.5%',top:'30.5%',width:'14%'
+  left:'40.5%',top:'30.5%',width:'17%'
 },
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
-  left:'65%',top:'50%',width:'11%'
+  left:'65%',top:'50%',width:'14%'
 }
 };
 let curActivity='idle',frameIdx=0,spriteTimer=null;
@@ -486,7 +502,8 @@ const cf=s.core_files||[];
 const ccm={'SOUL.md':'#ef4444','AGENTS.md':'#f97316','IDENTITY.md':'#fbbf24','MEMORY.md':'#22d3ee','USER.md':'#a78bfa','TOOLS.md':'#22c55e','BOOTSTRAP.md':'#6366f1','HEARTBEAT.md':'#f472b6'};
 cf.forEach((f,i)=>{
 const a=(i/cf.length)*Math.PI*2;
-const p=new THREE.Vector3(Math.cos(a)*90,Math.sin(a)*90,(Math.random()-0.5)*30);
+const zOff=Math.sin(a*1.5)*20;
+const p=new THREE.Vector3(Math.cos(a)*90,Math.sin(a)*90,zOff);
 makeNode3D('c_'+f,CORE_LABELS[f]||f.replace('.md',''),p,10,ccm[f]||'#60a5fa',gD(f,'core',s));
 addEdge3D(new THREE.Vector3(0,0,0),p,ccm[f]||'#60a5fa');
 });
@@ -515,7 +532,7 @@ if(toolNode)addEdge3D(toolNode.mesh.position,p,'#22c55e');
 function addEdge3D(from,to,color){
 const pts=[from.clone(),to.clone()];
 const geo=new THREE.BufferGeometry().setFromPoints(pts);
-const mat=new THREE.LineBasicMaterial({color:new THREE.Color(color),transparent:true,opacity:0.2});
+const mat=new THREE.LineBasicMaterial({color:new THREE.Color(color),transparent:true,opacity:0.15,depthWrite:false});
 edgeGroup.add(new THREE.Line(geo,mat));
 }
 
