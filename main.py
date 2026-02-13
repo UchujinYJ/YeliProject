@@ -14,7 +14,7 @@ app.mount("/static", StaticFiles(directory="."), name="static")
 # ============================
 translate_cache = {}
 last_translate_time = 0
-TRANSLATE_COOLDOWN = 30
+TRANSLATE_COOLDOWN = 5
 
 def get_sys_config():
     return {
@@ -22,7 +22,7 @@ def get_sys_config():
         "has_gemini": bool(os.getenv("GEMINI_KEY", ""))
     }
 
-def call_gemini(prompt, max_len=500):
+def call_gemini(prompt, max_len=2000):
     global last_translate_time
     gk = os.getenv("GEMINI_KEY", "")
     if not gk:
@@ -35,7 +35,7 @@ def call_gemini(prompt, max_len=500):
             f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gk}",
             headers={"Content-Type": "application/json"},
             json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=15
+            timeout=20
         )
         data = res.json()
         if "error" in data:
@@ -46,20 +46,51 @@ def call_gemini(prompt, max_len=500):
     except:
         return ""
 
-def translate_with_gemini(text):
+def translate_batch(logs):
+    """打包翻譯多條 log，已快取的跳過"""
     global translate_cache
-    text_hash = hash(text[:200])
-    if text_hash in translate_cache:
-        return translate_cache[text_hash]
-    sp = os.getenv("SYSTEM_PROMPT", "你是一個傲嬌的監控秘書。")
-    result = call_gemini(f"{sp}\n\n用一句繁體中文白話翻譯這段 Log（不要超過 50 字）：\n{text[:300]}")
-    if result:
-        translate_cache[text_hash] = result
-        if len(translate_cache) > 100:
-            keys = list(translate_cache.keys())
-            for k in keys[:50]:
-                del translate_cache[k]
-    return result
+    results = {}
+    to_translate = []
+    
+    for l in logs:
+        msg = l["content"][:200]
+        h = hash(msg)
+        if h in translate_cache:
+            results[msg] = translate_cache[h]
+        else:
+            to_translate.append(msg)
+    
+    if not to_translate:
+        return results
+    
+    # 打包成一次 API 呼叫
+    numbered = "\n".join([f"[{i+1}] {m}" for i, m in enumerate(to_translate)])
+    prompt = f"將以下 AI Agent 的系統日誌逐條翻譯成繁體中文白話文。每條不超過 40 字。\n格式：每行一條，用 [編號] 開頭。不要加解釋。\n\n{numbered}"
+    
+    raw = call_gemini(prompt, max_len=2000)
+    if raw:
+        # 解析回傳
+        for line in raw.strip().split("\n"):
+            line = line.strip()
+            if not line:
+                continue
+            # 匹配 [1] 翻譯內容 格式
+            m = re.match(r'\[(\d+)\]\s*(.*)', line)
+            if m:
+                idx = int(m.group(1)) - 1
+                tr = m.group(2).strip()
+                if 0 <= idx < len(to_translate):
+                    h = hash(to_translate[idx])
+                    translate_cache[h] = tr
+                    results[to_translate[idx]] = tr
+    
+    # 清理過大的快取
+    if len(translate_cache) > 200:
+        keys = list(translate_cache.keys())
+        for k in keys[:100]:
+            del translate_cache[k]
+    
+    return results
 
 # ============================
 # Zeabur API
@@ -196,11 +227,14 @@ def get_logs():
     if result.get("logs"):
         # 過濾垃圾行
         result["logs"] = [l for l in result["logs"] if is_meaningful_log(l["content"])]
-        # 翻譯最後一條有意義的 log
-        if result["logs"]:
-            last_msg = result["logs"][-1]["content"]
-            translated = translate_with_gemini(last_msg)
-            result["translated"] = translated
+        # 打包翻譯（只取最後 10 條）
+        visible = result["logs"][-10:]
+        if visible:
+            tr_map = translate_batch(visible)
+            for l in result["logs"]:
+                key = l["content"][:200]
+                if key in tr_map:
+                    l["translated"] = tr_map[key]
     return JSONResponse(content=result)
 
 @app.post("/get_status")
@@ -232,7 +266,7 @@ HTML_CODE = r"""<!DOCTYPE html>
 <html lang="zh-TW">
 <head>
 <meta charset="UTF-8">
-<meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1,user-scalable=no">
+<meta name="viewport" content="width=device-width,initial-scale=1">
 <title>Yeli Room</title>
 <link href="https://fonts.googleapis.com/css2?family=DotGothic16&family=Noto+Sans+TC:wght@300;400;700&display=swap" rel="stylesheet">
 <script src="https://cdnjs.cloudflare.com/ajax/libs/three.js/r128/three.min.js"></script>
@@ -250,12 +284,17 @@ body{background:var(--bg);font-family:'Noto Sans TC','DotGothic16',sans-serif;co
 .tab.active::after{content:'';position:absolute;bottom:0;left:20%;right:20%;height:2px;background:var(--accent);border-radius:2px 2px 0 0}
 .content{flex:1;position:relative;overflow:hidden}
 .page{display:none;width:100%;height:100%;position:absolute;top:0;left:0}.page.active{display:flex}
-.room-view{background-color:#080c12;width:100%;height:100%;position:relative;overflow:hidden;display:flex;align-items:center;justify-content:center}
+.room-view{background-color:#080c12;width:100%;height:100%;position:relative;overflow:auto;display:flex;align-items:center;justify-content:center}
 .room-inner{position:relative;display:inline-block;max-width:100%;max-height:100%}
 .room-inner img.room-bg{display:block;max-width:100%;max-height:100%;image-rendering:pixelated}
+@media(max-width:768px){
+.room-view{align-items:flex-start;overflow:auto}
+.room-inner{max-height:none}
+.room-inner img.room-bg{max-height:none;width:150vw;max-width:none}
+}
 .sprite{position:absolute;image-rendering:pixelated;pointer-events:none}
 .mlog{position:absolute;bottom:16px;left:3%;width:94%;max-height:160px;background:rgba(8,12,18,.92);border:1px solid #1e2a42;padding:10px 12px;font-size:11px;overflow-y:auto;border-radius:6px;backdrop-filter:blur(8px);font-family:'DotGothic16',monospace;z-index:20}
-.le{margin-bottom:3px;line-height:1.5}.lt{color:var(--accent);margin-right:8px;opacity:.7}.lm{color:#8b949e}.ltr{color:var(--cyan);font-style:italic;display:block;margin-left:70px;margin-top:1px;font-size:11px}
+.le{margin-bottom:3px;line-height:1.5}.lt{color:var(--accent);margin-right:8px;opacity:.7}.lm{color:#8b949e}
 /* RPG */
 .rpg{width:100%;height:100%;display:flex;flex-direction:column;background:radial-gradient(ellipse at 50% 0%,rgba(251,191,36,.03) 0%,transparent 60%),var(--bg);overflow:hidden}
 .rpg-h{padding:16px 20px 0;flex-shrink:0}.rpg-t{font-family:'DotGothic16',monospace;font-size:18px;color:var(--accent);text-shadow:0 0 20px rgba(251,191,36,.3)}
@@ -317,12 +356,29 @@ function ss(ok,t){document.getElementById('sdot').className='sdot '+(ok?'ok':'er
 
 async function init(){const r=await fetch('/get_sys_config');CFG=await r.json();if(CFG.has_zeabur){ss(true,'已連線');sync();setInterval(sync,30000)}else{ss(false,'未設定');document.getElementById('mlog').innerText="缺少環境變數"}}
 
-async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText=d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="安靜中..."}}catch(e){ss(false,'連線失敗')}}
+let logTrCache={};
+let lastLogTime=Date.now();
 
-function rl(d){const el=document.getElementById('mlog');const rc=d.logs.slice(-10);const tr=d.translated||'';
-el.innerHTML=rc.map((l,i)=>{const t=l.timestamp?new Date(l.timestamp).toLocaleTimeString('zh-TW',{hour12:false}):'--:--:--';const la=i===rc.length-1;
-return'<div class="le"><span class="lt">'+t+'</span><span class="lm">'+E(l.content.substring(0,200))+'</span>'+(la&&tr?'<span class="ltr">'+E(tr)+'</span>':'')+'</div>'}).join('');el.scrollTop=el.scrollHeight;
-// 根據最新 log 判斷活動
+async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;lastLogTime=Date.now();ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText=d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="安靜中...";checkIdle()}}catch(e){ss(false,'連線失敗')}}
+
+function checkIdle(){
+// 如果超過 2 分鐘沒有新 log，自動切到 idle
+if(Date.now()-lastLogTime>120000&&curActivity!=='idle'){setActivity('idle')}
+}
+setInterval(checkIdle,30000);
+
+function rl(d){const el=document.getElementById('mlog');const rc=d.logs.slice(-10);
+// 更新前端翻譯快取
+rc.forEach(l=>{
+  const key=l.content.substring(0,200);
+  if(l.translated)logTrCache[key]=l.translated;
+});
+el.innerHTML=rc.map(l=>{
+  const t=l.timestamp?new Date(l.timestamp).toLocaleTimeString('zh-TW',{hour12:false}):'--:--:--';
+  const key=l.content.substring(0,200);
+  const tr=logTrCache[key]||l.translated||'';
+  return'<div class="le"><span class="lt">'+t+'</span>'+(tr?'<span class="lm">'+E(tr)+'</span>':'<span class="lm" style="color:#555">'+E(l.content.substring(0,200))+'</span>')+'</div>'
+}).join('');el.scrollTop=el.scrollHeight;
 if(rc.length>0)detectActivity(rc)}
 
 // ========== 角色動畫 ==========
