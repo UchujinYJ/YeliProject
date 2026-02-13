@@ -357,8 +357,7 @@ let lastLogTime=Date.now();
 async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;lastLogTime=Date.now();ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText=d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="安靜中...";checkIdle()}}catch(e){ss(false,'連線失敗')}}
 
 function checkIdle(){
-// 如果超過 2 分鐘沒有新 log，自動切到 idle
-if(Date.now()-lastLogTime>120000&&curActivity!=='idle'){setActivity('idle')}
+if(Date.now()-lastLogTime>120000&&curActivity!=='sleep'){setActivity('sleep')}
 }
 setInterval(checkIdle,30000);
 
@@ -389,20 +388,21 @@ study:{
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
   left:'65%',top:'50%',width:'14%'
+},
+sleep:{
+  frames:['/static/sleep_1.png'],
+  left:'15%',top:'32%',width:'22%'
 }
 };
-let curActivity='idle',frameIdx=0,spriteTimer=null;
+let curActivity='sleep',frameIdx=0,spriteTimer=null;
 
 function detectActivity(logs){
-// 檢查最近幾筆 log 的關鍵字
 const recent=logs.slice(-5).map(l=>l.content.toLowerCase()).join(' ');
 let act='idle';
-if(recent.includes('crypto')||recent.includes('price')||recent.includes('btc')||recent.includes('eth')||recent.includes('bitcoin')||recent.includes('coin')||recent.includes('profit')||recent.includes('exchange')||recent.includes('usd')||recent.includes('jpy')||recent.includes('rate')||recent.includes('bounty')){
+if(recent.includes('crypto')||recent.includes('price')||recent.includes('btc')||recent.includes('eth_')||recent.includes('bitcoin')||recent.includes('coin')||recent.includes('profit')||recent.includes('exchange_rate')||recent.includes('bounty')||recent.includes('crypto_check')){
   act='crypto';
-}else if(recent.includes('search')||recent.includes('web_search')||recent.includes('learn')||recent.includes('read')||recent.includes('fetch')||recent.includes('research')||recent.includes('study')||recent.includes('google')||recent.includes('brave')||recent.includes('http')||recent.includes('url')){
+}else if(recent.includes('web_search')||recent.includes('web_fetch')||recent.includes('learn')||recent.includes('read')||recent.includes('research')||recent.includes('study')||recent.includes('brave_search')||recent.includes('scraping')){
   act='study';
-}else if(recent.includes('write')||recent.includes('creative')||recent.includes('draw')||recent.includes('paint')||recent.includes('idle')||recent.includes('heartbeat')||recent.includes('memory')||recent.includes('save')){
-  act='idle';
 }
 setActivity(act);
 }
@@ -427,10 +427,10 @@ spriteTimer=setInterval(()=>{
 },600);
 }
 
-// 初始啟動 idle 動畫 + 預載入所有角色圖
+// 初始啟動 sleep 動畫 + 預載入所有角色圖
 setTimeout(()=>{
 Object.values(ACTIVITIES).forEach(a=>a.frames.forEach(f=>{const i=new Image();i.src=f}));
-setActivity('idle');
+setActivity('sleep');
 },500);
 
 // ========== SKILLS ==========
