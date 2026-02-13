@@ -387,7 +387,7 @@ study:{
 },
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
-  left:'65%',top:'50%',width:'14%'
+  left:'56.55%',top:'48.5%',width:'14%'
 },
 sleep:{
   frames:['/static/sleep_1.png'],
