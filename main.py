@@ -19,32 +19,59 @@ TRANSLATE_COOLDOWN = 5
 def get_sys_config():
     return {
         "has_zeabur": bool(os.getenv("ZEABUR_API_TOKEN", "")),
-        "has_gemini": bool(os.getenv("GEMINI_KEY", ""))
+        "has_gemini": bool(os.getenv("GEMINI_KEY", "") or os.getenv("GROQ_KEY", ""))
     }
 
-def call_gemini(prompt, max_len=2000):
+def call_llm(prompt, max_len=2000):
+    """雙引擎：Gemini 優先，失敗自動切 Groq"""
     global last_translate_time
-    gk = os.getenv("GEMINI_KEY", "")
-    if not gk:
-        return ""
     now = time.time()
     if now - last_translate_time < TRANSLATE_COOLDOWN:
         return ""
-    try:
-        res = requests.post(
-            f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gk}",
-            headers={"Content-Type": "application/json"},
-            json={"contents": [{"parts": [{"text": prompt}]}]},
-            timeout=20
-        )
-        data = res.json()
-        if "error" in data:
-            return ""
-        result = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
-        last_translate_time = now
-        return result[:max_len] if result else ""
-    except:
-        return ""
+    
+    # 嘗試 Gemini
+    gk = os.getenv("GEMINI_KEY", "")
+    if gk:
+        try:
+            res = requests.post(
+                f"https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key={gk}",
+                headers={"Content-Type": "application/json"},
+                json={"contents": [{"parts": [{"text": prompt}]}]},
+                timeout=15
+            )
+            data = res.json()
+            if "error" not in data:
+                result = data.get("candidates", [{}])[0].get("content", {}).get("parts", [{}])[0].get("text", "")
+                if result:
+                    last_translate_time = now
+                    return result[:max_len]
+        except:
+            pass
+    
+    # Gemini 失敗，嘗試 Groq
+    qk = os.getenv("GROQ_KEY", "")
+    if qk:
+        try:
+            res = requests.post(
+                "https://api.groq.com/openai/v1/chat/completions",
+                headers={"Authorization": f"Bearer {qk}", "Content-Type": "application/json"},
+                json={
+                    "model": "llama-3.3-70b-versatile",
+                    "messages": [{"role": "user", "content": prompt}],
+                    "max_tokens": max_len,
+                    "temperature": 0.3
+                },
+                timeout=15
+            )
+            data = res.json()
+            result = data.get("choices", [{}])[0].get("message", {}).get("content", "")
+            if result:
+                last_translate_time = now
+                return result[:max_len]
+        except:
+            pass
+    
+    return ""
 
 def translate_batch(logs):
     """打包翻譯多條 log，已快取的跳過"""
@@ -67,14 +94,12 @@ def translate_batch(logs):
     numbered = "\n".join([f"[{i+1}] {m}" for i, m in enumerate(to_translate)])
     prompt = f"將以下 AI Agent 的系統日誌逐條翻譯成繁體中文白話文。每條不超過 40 字。\n格式：每行一條，用 [編號] 開頭。不要加解釋。\n\n{numbered}"
     
-    raw = call_gemini(prompt, max_len=2000)
+    raw = call_llm(prompt, max_len=2000)
     if raw:
-        # 解析回傳
         for line in raw.strip().split("\n"):
             line = line.strip()
             if not line:
                 continue
-            # 匹配 [1] 翻譯內容 格式
             m = re.match(r'\[(\d+)\]\s*(.*)', line)
             if m:
                 idx = int(m.group(1)) - 1
@@ -254,7 +279,7 @@ async def translate_content(request: Request):
     if cache_key in translate_cache:
         return JSONResponse(content={"translated": translate_cache[cache_key]})
     prompt = f"將以下 AI Agent 的系統檔案內容翻譯成繁體中文。保留 Markdown 格式和結構。只輸出翻譯結果，不要加任何解釋：\n\n{text[:1500]}"
-    result = call_gemini(prompt, max_len=2000)
+    result = call_llm(prompt, max_len=2000)
     if result:
         translate_cache[cache_key] = result
     return JSONResponse(content={"translated": result})
