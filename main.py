@@ -329,7 +329,7 @@ if(rc.length>0)detectActivity(rc)}
 const ACTIVITIES={
 crypto:{
   frames:['/static/crypto_1.png','/static/crypto_2.png','/static/crypto_3.png','/static/crypto_4.png'],
-  left:'28%',top:'18%',width:'15%'
+  left:'39.2%',top:'21%',width:'15%'
 },
 study:{
   frames:['/static/study_1.png','/static/study_2.png','/static/study_3.png'],
