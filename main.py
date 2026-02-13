@@ -383,7 +383,7 @@ crypto:{
 },
 study:{
   frames:['/static/study_1.png','/static/study_2.png','/static/study_3.png'],
-  left:'40.5%',top:'30.5%',width:'17%'
+  left:'47.5%',top:'38%',width:'13%'
 },
 idle:{
   frames:['/static/idle_1.png','/static/idle_2.png','/static/idle_3.png'],
@@ -391,7 +391,7 @@ idle:{
 },
 sleep:{
   frames:['/static/sleep_1.png'],
-  left:'15%',top:'32%',width:'22%'
+  left:'21.5%',top:'22.7%',width:'26.2%'
 }
 };
 let curActivity='sleep',frameIdx=0,spriteTimer=null;
