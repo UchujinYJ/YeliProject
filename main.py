@@ -212,6 +212,9 @@ def is_meaningful_log(msg):
         'conn=', 'client-openclaw', 'remote=10.',
         '"key":', '"value":', '"timestamp":',
         'content-type', 'authorization',
+        'embeddings rate limited', 'googleapis.com',
+        'google.rpc', '@type', 'sync failed',
+        'retrying in', 'failed:',
     ]
     for p in noise_patterns:
         if p in sl:
@@ -353,8 +356,14 @@ async function init(){const r=await fetch('/get_sys_config');CFG=await r.json();
 
 let logTrCache={};
 let lastLogTime=Date.now();
+let lastLogHash='';
 
-async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){LL=d.logs;lastLogTime=Date.now();ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText=d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="安靜中...";checkIdle()}}catch(e){ss(false,'連線失敗')}}
+async function sync(){try{const r=await fetch('/get_logs',{method:'POST'});const d=await r.json();if(d.logs&&d.logs.length>0){
+// 比對 log 是否有變化
+const newHash=d.logs.slice(-3).map(l=>l.content.substring(0,50)).join('|');
+if(newHash!==lastLogHash){lastLogTime=Date.now();lastLogHash=newHash}
+LL=d.logs;ss(true,'已連線 ('+d.logs.length+' 筆)');rl(d)}else if(d.error){ss(false,d.error);document.getElementById('mlog').innerText=d.error}else{ss(true,'暫無日誌');document.getElementById('mlog').innerText="安靜中..."}
+checkIdle()}catch(e){ss(false,'連線失敗')}}
 
 function checkIdle(){
 if(Date.now()-lastLogTime>120000&&curActivity!=='sleep'){setActivity('sleep')}
